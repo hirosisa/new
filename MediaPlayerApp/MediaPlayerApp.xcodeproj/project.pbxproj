@@ -1,0 +1,382 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA0000000000000000000201 /* MediaPlayerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000101 /* MediaPlayerApp.swift */; };
+		AA0000000000000000000202 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000102 /* RootView.swift */; };
+		AA0000000000000000000203 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000103 /* BrowseView.swift */; };
+		AA0000000000000000000204 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000104 /* NowPlayingView.swift */; };
+		AA0000000000000000000205 /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000105 /* QueueView.swift */; };
+		AA0000000000000000000206 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000106 /* LibraryView.swift */; };
+		AA0000000000000000000207 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000107 /* SettingsView.swift */; };
+		AA0000000000000000000208 /* VideoSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000108 /* VideoSurface.swift */; };
+		AA0000000000000000000209 /* PlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000109 /* PlayerEngine.swift */; };
+		AA000000000000000000020A /* NowPlayingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010A /* NowPlayingController.swift */; };
+		AA000000000000000000020B /* MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010B /* MediaItem.swift */; };
+		AA000000000000000000020C /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010C /* Library.swift */; };
+		AA000000000000000000020D /* MediaSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010D /* MediaSource.swift */; };
+		AA000000000000000000020E /* PodcastSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010E /* PodcastSource.swift */; };
+		AA000000000000000000020F /* ArchiveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010F /* ArchiveSource.swift */; };
+		AA0000000000000000000210 /* LocalFilesSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000110 /* LocalFilesSource.swift */; };
+		AA0000000000000000000211 /* InvidiousSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000111 /* InvidiousSource.swift */; };
+		AA0000000000000000000212 /* HTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* HTTPClient.swift */; };
+		AA0000000000000000000213 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000113 /* Formatters.swift */; };
+		AA0000000000000000000214 /* YouTubeSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000114 /* YouTubeSource.swift */; };
+		AA0000000000000000000220 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000120 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AA0000000000000000000101 /* MediaPlayerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlayerApp.swift; sourceTree = "<group>"; };
+		AA0000000000000000000102 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000103 /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000104 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000105 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000106 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000107 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000108 /* VideoSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoSurface.swift; sourceTree = "<group>"; };
+		AA0000000000000000000109 /* PlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngine.swift; sourceTree = "<group>"; };
+		AA000000000000000000010A /* NowPlayingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingController.swift; sourceTree = "<group>"; };
+		AA000000000000000000010B /* MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaItem.swift; sourceTree = "<group>"; };
+		AA000000000000000000010C /* Library.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Library.swift; sourceTree = "<group>"; };
+		AA000000000000000000010D /* MediaSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSource.swift; sourceTree = "<group>"; };
+		AA000000000000000000010E /* PodcastSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastSource.swift; sourceTree = "<group>"; };
+		AA000000000000000000010F /* ArchiveSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveSource.swift; sourceTree = "<group>"; };
+		AA0000000000000000000110 /* LocalFilesSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFilesSource.swift; sourceTree = "<group>"; };
+		AA0000000000000000000111 /* InvidiousSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvidiousSource.swift; sourceTree = "<group>"; };
+		AA0000000000000000000112 /* HTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPClient.swift; sourceTree = "<group>"; };
+		AA0000000000000000000113 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
+		AA0000000000000000000114 /* YouTubeSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeSource.swift; sourceTree = "<group>"; };
+		AA0000000000000000000120 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA0000000000000000000121 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000130 /* MediaPlayerApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaPlayerApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA0000000000000000000012 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA0000000000000000000002 /* MediaPlayerApp */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000004 /* MediaPlayerApp */,
+				AA0000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000130 /* MediaPlayerApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000004 /* MediaPlayerApp */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000101 /* MediaPlayerApp.swift */,
+				AA0000000000000000000005 /* Views */,
+				AA0000000000000000000006 /* Player */,
+				AA0000000000000000000007 /* Model */,
+				AA0000000000000000000008 /* Sources */,
+				AA0000000000000000000009 /* Support */,
+				AA0000000000000000000120 /* Assets.xcassets */,
+				AA0000000000000000000121 /* Info.plist */,
+			);
+			path = MediaPlayerApp;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000005 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000102 /* RootView.swift */,
+				AA0000000000000000000103 /* BrowseView.swift */,
+				AA0000000000000000000104 /* NowPlayingView.swift */,
+				AA0000000000000000000105 /* QueueView.swift */,
+				AA0000000000000000000106 /* LibraryView.swift */,
+				AA0000000000000000000107 /* SettingsView.swift */,
+			);
+			name = Views;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000006 /* Player */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000109 /* PlayerEngine.swift */,
+				AA000000000000000000010A /* NowPlayingController.swift */,
+				AA0000000000000000000108 /* VideoSurface.swift */,
+			);
+			name = Player;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000007 /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				AA000000000000000000010B /* MediaItem.swift */,
+				AA000000000000000000010C /* Library.swift */,
+			);
+			name = Model;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000008 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				AA000000000000000000010D /* MediaSource.swift */,
+				AA0000000000000000000114 /* YouTubeSource.swift */,
+				AA000000000000000000010E /* PodcastSource.swift */,
+				AA000000000000000000010F /* ArchiveSource.swift */,
+				AA0000000000000000000110 /* LocalFilesSource.swift */,
+				AA0000000000000000000111 /* InvidiousSource.swift */,
+			);
+			name = Sources;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000009 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000112 /* HTTPClient.swift */,
+				AA0000000000000000000113 /* Formatters.swift */,
+			);
+			name = Support;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA0000000000000000000010 /* MediaPlayerApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0000000000000000000033 /* Build configuration list for PBXNativeTarget "MediaPlayerApp" */;
+			buildPhases = (
+				AA0000000000000000000011 /* Sources */,
+				AA0000000000000000000012 /* Frameworks */,
+				AA0000000000000000000013 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MediaPlayerApp;
+			productName = MediaPlayerApp;
+			productReference = AA0000000000000000000130 /* MediaPlayerApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AA0000000000000000000010 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = AA0000000000000000000030 /* Build configuration list for PBXProject "MediaPlayerApp" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AA0000000000000000000002 /* MediaPlayerApp */;
+			productRefGroup = AA0000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA0000000000000000000010 /* MediaPlayerApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA0000000000000000000013 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000220 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA0000000000000000000011 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000201 /* MediaPlayerApp.swift in Sources */,
+				AA0000000000000000000202 /* RootView.swift in Sources */,
+				AA0000000000000000000203 /* BrowseView.swift in Sources */,
+				AA0000000000000000000204 /* NowPlayingView.swift in Sources */,
+				AA0000000000000000000205 /* QueueView.swift in Sources */,
+				AA0000000000000000000206 /* LibraryView.swift in Sources */,
+				AA0000000000000000000207 /* SettingsView.swift in Sources */,
+				AA0000000000000000000208 /* VideoSurface.swift in Sources */,
+				AA0000000000000000000209 /* PlayerEngine.swift in Sources */,
+				AA000000000000000000020A /* NowPlayingController.swift in Sources */,
+				AA000000000000000000020B /* MediaItem.swift in Sources */,
+				AA000000000000000000020C /* Library.swift in Sources */,
+				AA000000000000000000020D /* MediaSource.swift in Sources */,
+				AA000000000000000000020E /* PodcastSource.swift in Sources */,
+				AA000000000000000000020F /* ArchiveSource.swift in Sources */,
+				AA0000000000000000000210 /* LocalFilesSource.swift in Sources */,
+				AA0000000000000000000211 /* InvidiousSource.swift in Sources */,
+				AA0000000000000000000212 /* HTTPClient.swift in Sources */,
+				AA0000000000000000000213 /* Formatters.swift in Sources */,
+				AA0000000000000000000214 /* YouTubeSource.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA0000000000000000000031 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA0000000000000000000032 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AA0000000000000000000034 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MediaPlayerApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.mediaplayer;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA0000000000000000000035 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MediaPlayerApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.mediaplayer;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA0000000000000000000030 /* Build configuration list for PBXProject "MediaPlayerApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000000000000000000031 /* Debug */,
+				AA0000000000000000000032 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA0000000000000000000033 /* Build configuration list for PBXNativeTarget "MediaPlayerApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000000000000000000034 /* Debug */,
+				AA0000000000000000000035 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = AA0000000000000000000001 /* Project object */;
+}

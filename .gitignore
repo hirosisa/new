@@ -1,0 +1,18 @@
+# Xcode build output
+build/
+DerivedData/
+*.ipa
+payload-staging/
+
+# Xcode user state (the shared scheme in xcshareddata IS committed)
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+.build/

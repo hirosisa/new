@@ -1,0 +1,117 @@
+name: Build unsigned IPA
+
+# Builds MediaPlayerApp on a GitHub-hosted macOS runner and publishes an
+# unsigned .ipa as a workflow artifact. SideStore signs it on the iPhone with
+# your own Apple ID, so no Mac and no paid developer account are needed.
+#
+# Trigger it from the Actions tab (Run workflow), or on every push to main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MediaPlayerApp/**'
+      - '.github/workflows/ios-build.yml'
+  pull_request:
+    paths:
+      - 'MediaPlayerApp/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve scheme
+        working-directory: MediaPlayerApp
+        run: xcodebuild -list -project MediaPlayerApp.xcodeproj
+
+      # Compiles for a real device with signing switched off. This is what makes
+      # the output sideloadable: SideStore applies your signature on-device.
+      - name: Build (unsigned, device arm64)
+        working-directory: MediaPlayerApp
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MediaPlayerApp.xcodeproj \
+            -scheme MediaPlayerApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO \
+            clean build
+
+      - name: Package .ipa
+        working-directory: MediaPlayerApp
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/MediaPlayerApp.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Build product not found at $APP_PATH"
+            find build/Build/Products -maxdepth 3 -name '*.app' || true
+            exit 1
+          fi
+
+          # An .ipa is just a zip with the .app inside a top-level Payload dir.
+          rm -rf payload-staging
+          mkdir -p payload-staging/Payload
+          cp -R "$APP_PATH" payload-staging/Payload/
+          cd payload-staging
+          zip -qry ../MediaPlayerApp-unsigned.ipa Payload
+          cd ..
+
+          ls -lh MediaPlayerApp-unsigned.ipa
+          echo "Bundle contents:"
+          unzip -l MediaPlayerApp-unsigned.ipa | head -30
+
+      # Fails the build if the binary is missing, the wrong architecture, or the
+      # Info.plist lost its background-audio declaration.
+      - name: Verify bundle
+        working-directory: MediaPlayerApp
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/MediaPlayerApp.app"
+
+          echo "--- Architectures ---"
+          lipo -info "$APP_PATH/MediaPlayerApp"
+          lipo -info "$APP_PATH/MediaPlayerApp" | grep -q arm64 \
+            || { echo "::error::Binary is not arm64"; exit 1; }
+
+          echo "--- Background modes ---"
+          plutil -extract UIBackgroundModes json -o - "$APP_PATH/Info.plist"
+          plutil -extract UIBackgroundModes json -o - "$APP_PATH/Info.plist" | grep -q audio \
+            || { echo "::error::UIBackgroundModes is missing 'audio'; screen-off playback would not work"; exit 1; }
+
+          echo "--- App icon present ---"
+          test -f "$APP_PATH/AppIcon60x60@2x.png" \
+            || ls "$APP_PATH" | grep -i appicon \
+            || echo "::warning::No rasterised app icon found in the bundle"
+
+          echo "--- Bundle identifier ---"
+          plutil -extract CFBundleIdentifier raw -o - "$APP_PATH/Info.plist"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaPlayerApp-unsigned-ipa
+          path: MediaPlayerApp/MediaPlayerApp-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30

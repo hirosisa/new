@@ -1,0 +1,25 @@
+# Normalise to LF in the repository and on checkout.
+#
+# This matters for the build: the macOS runner executes scripts/build-unsigned-ipa.sh,
+# and a CRLF shebang line makes bash fail with "bad interpreter: No such file or
+# directory". Committing from Windows without this would introduce CRLF.
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.py      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.swift   text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+*.plist   text eol=lf
+*.pbxproj text eol=lf
+
+# PowerShell is fine with LF and this keeps diffs consistent.
+*.ps1     text eol=lf
+
+# Never touch these.
+*.png     binary
+*.jpg     binary
+*.ipa     binary
+*.zip     binary
