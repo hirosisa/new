@@ -81,7 +81,7 @@ jobs:
 
       - name: Upload build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-log
           path: build.log
@@ -139,7 +139,7 @@ jobs:
           plutil -extract CFBundleIdentifier raw -o - "$APP_PATH/Info.plist"
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: MediaPlayerApp-unsigned-ipa
           path: MediaPlayerApp/MediaPlayerApp-unsigned.ipa

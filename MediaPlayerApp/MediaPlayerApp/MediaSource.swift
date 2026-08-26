@@ -147,7 +147,12 @@ final class SourceRegistry: ObservableObject {
     static let primarySourceID = "youtube"
 
     /// Round-robin merge, preserving each source's own ranking.
-    static func interleave(_ groups: [[MediaItem]]) -> [MediaItem] {
+    ///
+    /// `nonisolated` because it's a pure function over its arguments: sources
+    /// call it from their own nonisolated async contexts, and inheriting the
+    /// class's `@MainActor` isolation would force a needless `await` (and an
+    /// actor hop) on every merge.
+    nonisolated static func interleave(_ groups: [[MediaItem]]) -> [MediaItem] {
         let maxCount = groups.map(\.count).max() ?? 0
         var merged: [MediaItem] = []
         var seen = Set<String>()

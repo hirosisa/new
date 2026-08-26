@@ -3,6 +3,11 @@ import AVFoundation
 import Combine
 import MediaPlayer
 
+/// Defined at file scope because a stored-property initialiser may not reference
+/// `Self` — "covariant 'Self' type cannot be referenced from a stored property
+/// initializer" — even when the enclosing class is `final`.
+private let audioOnlyDefaultsKey = "preferAudioOnly"
+
 /// Playback engine: one long-lived `AVPlayer`, a queue, and lock-screen integration.
 ///
 /// Design notes, each fixing a concrete defect in the previous version:
@@ -41,10 +46,10 @@ final class PlayerEngine: ObservableObject {
     /// Persisted: someone using this mainly for music wants audio-only every
     /// launch, not a video stream chewing through data until they remember to
     /// toggle it.
-    @Published private(set) var audioOnly = UserDefaults.standard.bool(forKey: Self.audioOnlyKey)
+    @Published private(set) var audioOnly = UserDefaults.standard.bool(forKey: audioOnlyDefaultsKey)
     @Published private(set) var playbackSpeed: Float = 1.0
 
-    static let audioOnlyKey = "preferAudioOnly"
+    static let audioOnlyKey = audioOnlyDefaultsKey
 
     /// Remaining seconds on the sleep timer, or `nil` when off.
     @Published private(set) var sleepTimerRemaining: TimeInterval?
@@ -76,8 +81,12 @@ final class PlayerEngine: ObservableObject {
     /// Guards against an infinite retry loop when a stream URL has expired.
     private var retriedCurrentItem = false
 
-    init(registry: SourceRegistry = .shared) {
-        self.registry = registry
+    /// Takes an optional rather than defaulting to `.shared`: default argument
+    /// expressions are evaluated in a nonisolated context, and reaching a
+    /// `@MainActor` static property from there is an error under Swift 6.
+    /// Resolving it inside the initialiser keeps it on the main actor.
+    init(registry: SourceRegistry? = nil) {
+        self.registry = registry ?? .shared
 
         configureAudioSession()
         observePlayer()
@@ -129,13 +138,19 @@ final class PlayerEngine: ObservableObject {
     private func addPeriodicTimeObserver() {
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self else { return }
-            let seconds = time.seconds
-            self.currentTime = seconds.isFinite ? max(0, seconds) : 0
+            // AVFoundation types this callback as @Sendable, so touching
+            // main-actor state inside it is a concurrency error under Swift 6.
+            // It is registered on the main queue, so the isolation is real —
+            // `assumeIsolated` asserts that without an actor hop.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let seconds = time.seconds
+                self.currentTime = seconds.isFinite ? max(0, seconds) : 0
 
-            if let itemDuration = self.player.currentItem?.duration.seconds,
-               itemDuration.isFinite, itemDuration > 0 {
-                self.duration = itemDuration
+                if let itemDuration = self.player.currentItem?.duration.seconds,
+                   itemDuration.isFinite, itemDuration > 0 {
+                    self.duration = itemDuration
+                }
             }
         }
     }
