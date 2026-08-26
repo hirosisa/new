@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Show toolchain
         run: |
@@ -37,6 +37,13 @@ jobs:
       - name: Resolve scheme
         working-directory: MediaPlayerApp
         run: xcodebuild -list -project MediaPlayerApp.xcodeproj
+
+      # Turns "File.swift:12:5: error: ..." lines into GitHub annotations, which
+      # are readable through the check-runs API without a token. Without this a
+      # failure surfaces only as "exit code 65", and the detail is locked inside
+      # the log archive.
+      - name: Register Swift problem matcher
+        run: echo "::add-matcher::.github/matchers/swift.json"
 
       # Compiles for a real device with signing switched off. This is what makes
       # the output sideloadable: SideStore applies your signature on-device.
@@ -56,7 +63,30 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS="" \
             ONLY_ACTIVE_ARCH=NO \
-            clean build
+            clean build 2>&1 | tee ../build.log
+
+      # Runs even when the build fails, and echoes a de-duplicated error list to
+      # the job summary so the cause is visible at a glance.
+      - name: Summarise errors
+        if: failure()
+        run: |
+          echo '## Build errors' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E '(error|warning):' build.log \
+            | grep -v 'reference to member' \
+            | sort -u \
+            | head -60 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Package .ipa
         working-directory: MediaPlayerApp

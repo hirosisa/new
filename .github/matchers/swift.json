@@ -1,0 +1,26 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "swift-diagnostics",
+      "pattern": [
+        {
+          "regexp": "^(?:\\s*)(\\/.+?\\.(?:swift|h|m|mm)):(\\d+):(\\d+):\\s+(error|warning):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      ]
+    },
+    {
+      "owner": "xcodebuild-errors",
+      "pattern": [
+        {
+          "regexp": "^(?:\\s*)error:\\s+(.*)$",
+          "message": 1
+        }
+      ]
+    }
+  ]
+}
