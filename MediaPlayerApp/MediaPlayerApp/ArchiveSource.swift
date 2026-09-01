@@ -130,7 +130,7 @@ private struct SearchResponse: Decodable {
     struct Doc: Decodable {
         let identifier: String?
         let mediatype: String?
-        let year: String?
+        let year: FlexibleString?
         // `title` and `creator` are sometimes a string, sometimes an array.
         let title: FlexibleString?
         let creator: FlexibleString?
@@ -162,6 +162,10 @@ private struct FlexibleString: Decodable {
             value = single
         } else if let many = try? container.decode([String].self) {
             value = many.first
+        } else if let num = try? container.decode(Int.self) {
+            value = String(num)  // archive returns `year` as a bare integer sometimes
+        } else if let num = try? container.decode(Double.self) {
+            value = String(num)
         } else {
             value = nil
         }

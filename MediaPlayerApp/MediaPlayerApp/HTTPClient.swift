@@ -18,9 +18,11 @@ actor HTTPClient {
         config.timeoutIntervalForResource = 45
         config.waitsForConnectivity = true
         config.requestCachePolicy = .reloadRevalidatingCacheData
-        config.httpAdditionalHeaders = [
-            "Accept-Encoding": "gzip, deflate"
-        ]
+        // NOTE: do NOT set Accept-Encoding manually. Setting it makes URLSession
+        // treat the response as already-decoded pass-through and it will NOT
+        // transparently gunzip — we'd hand gzip bytes to JSONDecoder, which
+        // surfaces as "The server sent data in an unexpected format." Let the
+        // system add its own header and decompress for us.
         self.session = URLSession(configuration: config)
     }
 
