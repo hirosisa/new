@@ -46,7 +46,7 @@ final class PlayerEngine: ObservableObject {
     /// Persisted: someone using this mainly for music wants audio-only every
     /// launch, not a video stream chewing through data until they remember to
     /// toggle it.
-    @Published private(set) var audioOnly = UserDefaults.standard.bool(forKey: audioOnlyDefaultsKey)
+    @Published private(set) var audioOnly = UserDefaults.standard.object(forKey: audioOnlyDefaultsKey) as? Bool ?? true
     @Published private(set) var playbackSpeed: Float = 1.0
 
     static let audioOnlyKey = audioOnlyDefaultsKey
@@ -253,9 +253,10 @@ final class PlayerEngine: ObservableObject {
         // Only documented AVURLAsset option keys are used here. Custom request
         // headers would need AVAssetResourceLoader; none of the working sources
         // require them.
-        let asset = AVURLAsset(url: url, options: [
-            AVURLAssetPreferPreciseDurationAndTimingKey: true
-        ])
+        let asset = AVURLAsset(url: url)
+        // NOTE: AVURLAssetPreferPreciseDurationAndTimingKey was removed: with HLS
+        // streams it forces a full manifest crawl before the item reports
+        // readyToPlay, which can leave the player stuck at --:-- on device.
         let playerItem = AVPlayerItem(asset: asset)
         playerItem.preferredForwardBufferDuration = 5
 
