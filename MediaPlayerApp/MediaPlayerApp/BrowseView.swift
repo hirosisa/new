@@ -8,22 +8,9 @@ struct BrowseView: View {
 
     @StateObject private var model = BrowseModel()
     @State private var suggestions: [MediaItem] = []
-    @State private var kindFilter: KindFilter = .all
-
-    enum KindFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case audio = "Audio"
-        case video = "Video"
-
-        var id: String { rawValue }
-    }
 
     private var visibleResults: [MediaItem] {
-        switch kindFilter {
-        case .all: return model.results
-        case .audio: return model.results.filter { $0.kind == .audio }
-        case .video: return model.results.filter { $0.kind == .video }
-        }
+        model.results
     }
 
     var body: some View {
@@ -78,17 +65,7 @@ struct BrowseView: View {
         }
         .listStyle(.plain)
         .navigationTitle("Browse")
-        .searchable(text: $model.query, prompt: "Podcasts, audiobooks, music, film")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Picker("Type", selection: $kindFilter) {
-                    ForEach(KindFilter.allCases) { filter in
-                        Text(filter.rawValue).tag(filter)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-        }
+        .searchable(text: $model.query, prompt: "Search")
         .overlay {
             if model.isSearching && model.results.isEmpty {
                 ProgressView("Searching…")
