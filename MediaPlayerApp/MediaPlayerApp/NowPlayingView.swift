@@ -513,6 +513,14 @@ private enum OrientationRequest {
             .setNeedsUpdateOfSupportedInterfaceOrientations()
     }
 
+    static func landscapeRight() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+        scene.keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+    }
+
     static func portrait() {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first else { return }
