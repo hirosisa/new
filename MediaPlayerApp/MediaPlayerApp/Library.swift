@@ -380,22 +380,46 @@ final class DownloadManager: ObservableObject {
     }
 
     /// Last tier: download a single progressive file (muxed itag 18 or
-    /// progressive audio). Sends the `Range` header AVPlayer itself sends —
-    /// the phone's network gates full GETs of videoplayback URLs (measured:
-    /// URLError.timedOut without it) — and retries once on failure.
+    /// progressive audio) in **1 MB ranged chunks** — the exact request shape
+    /// AVPlayer itself uses, and the only one this network reliably serves
+    /// (whole-file GETs die with URLError.timedOut / -1). Each chunk retries
+    /// once, so one flaky range doesn't kill the download.
     private static func fetchWholeFile(
         _ remote: URL,
         audioOnly: Bool,
         onProgress: @escaping (Double) -> Void
     ) async throws -> (Data, String) {
-        func attempt() async throws -> (Data, String) {
+        let coreMedia = "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)"
+        let chunkSize = 1_048_576
+
+        func rangedRequest(_ range: ClosedRange<Int>?) -> URLRequest {
             var request = URLRequest(url: remote)
             request.timeoutInterval = 30
-            request.setValue(
-                "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)",
-                forHTTPHeaderField: "User-Agent"
-            )
-            request.setValue("bytes=0-", forHTTPHeaderField: "Range")
+            request.setValue(coreMedia, forHTTPHeaderField: "User-Agent")
+            if let range {
+                request.setValue(
+                    "bytes=\(range.lowerBound)-\(range.upperBound)",
+                    forHTTPHeaderField: "Range"
+                )
+            }
+            return request
+        }
+
+        // Probe the total size with a 1-byte range; googlevideo answers
+        // "bytes 0-0/TOTAL". A non-206 means ranges aren't honored — fall
+        // back to one plain stream.
+        var probe = URLRequest(url: remote, timeoutInterval: 30)
+        probe.setValue(coreMedia, forHTTPHeaderField: "User-Agent")
+        probe.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        let (_, probeResponse) = try await URLSession.shared.bytes(for: probe)
+        guard let probeHTTP = probeResponse as? HTTPURLResponse else {
+            throw SourceError.transport("Download probe returned no HTTP response.")
+        }
+        let total = probeHTTP.value(forHTTPHeaderField: "Content-Range")?
+            .split(separator: "/").last.flatMap { Int($0) } ?? -1
+        guard probeHTTP.statusCode == 206, total > 0 else {
+            var request = rangedRequest(nil)
+            request.timeoutInterval = 60
             let (bytes, response) = try await URLSession.shared.bytes(for: request)
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode) else {
@@ -404,35 +428,65 @@ final class DownloadManager: ObservableObject {
                     host: remote.host ?? "googlevideo"
                 )
             }
-            let expected = max(http.expectedContentLength, 0)
-
             var data = Data()
-            for try await byte in bytes {
-                data.append(byte)
-                if expected > 0 {
-                    onProgress(min(0.99, Double(data.count) / Double(expected)))
+            for try await byte in bytes { data.append(byte) }
+            return (data, Self.sniffMediaExtension(data, audioOnly: audioOnly))
+        }
+
+        var data = Data(capacity: total)
+        var start = 0
+        while start < total {
+            let end = min(start + chunkSize, total) - 1
+            var chunk: Data?
+            for _ in 0..<2 { // one retry per chunk
+                do {
+                    let (bytes, response) = try await URLSession.shared.bytes(
+                        for: rangedRequest(start...end)
+                    )
+                    guard let http = response as? HTTPURLResponse,
+                          (200...299).contains(http.statusCode) else {
+                        throw SourceError.http(
+                            status: (response as? HTTPURLResponse)?.statusCode ?? -1,
+                            host: remote.host ?? "googlevideo"
+                        )
+                    }
+                    var received = Data()
+                    for try await byte in bytes { received.append(byte) }
+                    chunk = received
+                    break
+                } catch {
+                    chunk = nil
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
             }
-            let head = [UInt8](data.prefix(4))
-            let ext: String
-            if head.elementsEqual(Array("ftyp".utf8)) {
-                ext = audioOnly ? "m4a" : "mp4"
-            } else if head.first == 0x47 {
-                ext = "ts"
-            } else {
-                ext = "m4a"
+            guard var received = chunk else {
+                throw SourceError.transport(
+                    "Chunk \(start)-\(end) failed after retry."
+                )
             }
-            return (data, ext)
+            if received.count == end - start + 1, received.count >= 4 {
+                // Defensive trim: some servers pad the last chunk.
+                received = received.prefix(end - start + 1)
+            }
+            data.append(received)
+            start = end + 1
+            onProgress(min(0.99, Double(start) / Double(total)))
         }
+        return (data, Self.sniffMediaExtension(data, audioOnly: audioOnly))
+    }
 
-        do {
-            return try await attempt()
-        } catch {
-            // One retry: the phone's network gates these requests
-            // inconsistently, and a fresh connection often gets through.
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            return try await attempt()
+    private static func sniffMediaExtension(_ data: Data, audioOnly: Bool) -> String {
+        let head = [UInt8](data.prefix(4))
+        if head.elementsEqual(Array("ftyp".utf8)) {
+            return audioOnly ? "m4a" : "mp4"
         }
+        if head.first == 0x47 { return "ts" }
+        if head.starts(with: [0x49, 0x44, 0x33])
+            || head.starts(with: [0xFF, 0xF1])
+            || head.starts(with: [0xFF, 0xF9]) {
+            return "aac"
+        }
+        return audioOnly ? "m4a" : "ts"
     }
 
     /// Container sniffing: MPEG-TS → .ts, ID3/ADTS AAC → .aac, fMP4 → .mp4.
