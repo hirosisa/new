@@ -506,10 +506,10 @@ struct YouTubeSource: MediaSource {
                 }
                 let reason = response.unplayableReason ?? "no HLS manifest in response"
                 reasons.append("\(profile.name): \(reason)")
-                hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) — \(reason, privacy: .public)")
+                Self.hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) — \(reason, privacy: .public)")
             } catch {
                 reasons.append("\(profile.name): \(error.localizedDescription)")
-                hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                Self.hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
         }
         // Direct chain empty. Fall back through the exact path playback uses:
@@ -517,8 +517,8 @@ struct YouTubeSource: MediaSource {
         // URL) whenever HLS is available — it keeps every audio-group and
         // variant URI the downloader needs.
         if let url = try? await resolveStream(for: item, preferAudioOnly: false),
-           url.isFileURL || (url.scheme?.lowercased() == "https" && looksLikeHLS(url)) {
-            hlsLog.error("hlsMasterURL: falling back to the resolveStream master")
+           url.isFileURL || (url.scheme?.lowercased() == "https" && Self.looksLikeHLS(url)) {
+            Self.hlsLog.error("hlsMasterURL: falling back to the resolveStream master")
             return url
         }
         reasons.append("fallback resolve: no playable master")

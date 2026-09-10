@@ -193,7 +193,14 @@ final class DownloadManager: ObservableObject {
     /// Resolves the HLS master, picks a playlist (best audio rendition, or the
     /// highest H.264 variant — the master lists variants lowest-first), then
     /// downloads every segment and concatenates them into one file.
-    func download(_ item: MediaItem, registry: SourceRegistry, audioOnly: Bool) {
+    /// `masterHint` short-circuits resolution when the item is currently
+    /// playing and the engine already holds a working master URL.
+    func download(
+        _ item: MediaItem,
+        registry: SourceRegistry,
+        audioOnly: Bool,
+        masterHint: URL? = nil
+    ) {
         guard manifest[item.id] == nil, !activeIDs.contains(item.id) else { return }
         activeIDs.insert(item.id)
         fractions[item.id] = 0
@@ -205,11 +212,15 @@ final class DownloadManager: ObservableObject {
                 fractions[item.id] = nil
             }
             do {
-                guard let youtube = registry.source(for: item) as? YouTubeSource else {
-                    throw SourceError.notConfigured("Downloads are YouTube-only.")
-                }
-                guard let master = await youtube.hlsMasterURL(for: item) else {
-                    throw SourceError.noStream("No HLS manifest for “\(item.title)”.")
+                let master: URL
+                if let hint = masterHint,
+                   hint.isFileURL || hint.pathExtension.lowercased() == "m3u8" {
+                    master = hint
+                } else {
+                    guard let youtube = registry.source(for: item) as? YouTubeSource else {
+                        throw SourceError.notConfigured("Downloads are YouTube-only.")
+                    }
+                    master = try await youtube.hlsMasterURL(for: item)
                 }
                 let (data, ext) = try await Self.fetchSegments(
                     master: master,

@@ -137,6 +137,11 @@ final class PlayerEngine: ObservableObject {
     var canGoPrevious: Bool { !queue.isEmpty }
     var hasVideo: Bool { currentItem?.kind == .video && !audioOnly }
 
+    /// The stream URL currently attached to the player, if any — the
+    /// downloader reuses it (it provably works on this network) instead of
+    /// re-resolving through a chain that may refuse.
+    var currentStreamURL: URL? { lastAttachedURL }
+
     var progress: Double { Formatters.progress(current: currentTime, duration: duration) }
 
     // MARK: Private

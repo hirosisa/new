@@ -399,7 +399,12 @@ struct NowPlayingView: View {
             .accessibilityLabel("Remove download")
         } else {
             Button {
-                downloads.download(item, registry: registry, audioOnly: engine.audioOnly)
+                downloads.download(
+                    item,
+                    registry: registry,
+                    audioOnly: engine.audioOnly,
+                    masterHint: engine.currentItem?.id == item.id ? engine.currentStreamURL : nil
+                )
             } label: {
                 Image(systemName: "arrow.down.circle")
             }
