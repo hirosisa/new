@@ -59,10 +59,9 @@ enum VolumeBoost {
     private static func tapInit(
         _ tap: MTAudioProcessingTap,
         clientInfo: UnsafeMutableRawPointer?,
-        tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
-    ) -> OSStatus {
-        tapStorageOut?.pointee = clientInfo
-        return noErr
+        tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>
+    ) {
+        tapStorageOut.pointee = clientInfo
     }
 
     private static func tapFinalize(_ tap: MTAudioProcessingTap) {
@@ -76,11 +75,16 @@ enum VolumeBoost {
         bufferListInOut: UnsafeMutablePointer<AudioBufferList>,
         numberFramesOut: UnsafeMutablePointer<CMItemCount>,
         flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
-    ) -> OSStatus {
-        let status = MTAudioProcessingTapCopySourceBuffer(
-            tap, numberFrames, flagsOut, numberFramesOut, bufferListInOut, flags
+    ) {
+        let status = MTAudioProcessingTapGetSourceAudio(
+            tap,
+            numberFrames,
+            bufferListInOut,
+            flagsOut,
+            nil,
+            numberFramesOut
         )
-        guard status == noErr else { return status }
+        guard status == noErr else { return }
 
         let gain = Unmanaged<Box>
             .fromOpaque(MTAudioProcessingTapGetStorage(tap))
@@ -91,7 +95,6 @@ enum VolumeBoost {
             let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
             for i in 0..<count { samples[i] *= gain }
         }
-        return noErr
     }
 }
 

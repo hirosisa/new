@@ -331,7 +331,7 @@ struct NowPlayingView: View {
                 }
 
                 Menu {
-                    ForEach([1.0, 1.5, 2.0, 3.0], id: \.self) { gain in
+                    ForEach([1.0, 1.5, 2.0, 3.0] as [Float], id: \.self) { gain in
                         Button {
                             engine.setVolumeBoost(gain)
                         } label: {

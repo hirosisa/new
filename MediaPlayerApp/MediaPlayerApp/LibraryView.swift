@@ -217,6 +217,13 @@ struct LibraryView: View {
                 Button("Import files") { showImporter = true }
                     .buttonStyle(.borderedProminent)
             }
+
+        case .downloads:
+            ContentUnavailableView(
+                "No downloads",
+                systemImage: "arrow.down.circle",
+                description: Text("Downloaded songs show up here and play offline.")
+            )
         }
     }
 
