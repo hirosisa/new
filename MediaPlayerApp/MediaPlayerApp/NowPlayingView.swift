@@ -11,6 +11,8 @@ import AVKit
 struct NowPlayingView: View {
     @EnvironmentObject private var engine: PlayerEngine
     @EnvironmentObject private var library: Library
+    @EnvironmentObject private var registry: SourceRegistry
+    @ObservedObject private var downloads = DownloadManager.shared
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var pip = PiPCoordinator()
@@ -99,6 +101,9 @@ struct NowPlayingView: View {
                 Spacer(minLength: 24)
             }
             .padding(.top, 8)
+        }
+        .task(id: item.id) {
+            recommendations = await SourceRegistry.shared.youtube.relatedVideos(for: item)
         }
     }
 
@@ -288,6 +293,10 @@ struct NowPlayingView: View {
                     }
                     .accessibilityLabel("Picture in Picture")
                 }
+
+                if item.sourceID == SourceRegistry.primarySourceID {
+                    downloadButton(for: item)
+                }
             }
             .font(.title3)
             .buttonStyle(.plain)
@@ -339,6 +348,31 @@ struct NowPlayingView: View {
         .padding(.top, 4)
     }
 
+    /// Offline download: tap to save, spinner while running, tap the
+    /// checkmark to remove the file. Audio saves the m4a, video the muxed
+    /// mp4 — both play offline afterwards.
+    @ViewBuilder
+    private func downloadButton(for item: MediaItem) -> some View {
+        if downloads.isDownloading(item) {
+            ProgressView()
+        } else if downloads.isDownloaded(item) {
+            Button {
+                downloads.delete(item)
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+            .accessibilityLabel("Remove download")
+        } else {
+            Button {
+                downloads.download(item, registry: registry, audioOnly: engine.audioOnly)
+            } label: {
+                Image(systemName: "arrow.down.circle")
+            }
+            .accessibilityLabel("Download for offline")
+        }
+    }
+
     // MARK: - Recommendations
 
     /// YouTube's own "up next" rail, fetched per current item and shown in
@@ -355,6 +389,7 @@ struct NowPlayingView: View {
                 ForEach(recommendations.prefix(12)) { rec in
                     Button {
                         engine.playNow(rec)
+                        library.notePlayed(rec)
                     } label: {
                         HStack(spacing: 12) {
                             AsyncImage(url: rec.artworkURL) { image in
@@ -393,9 +428,6 @@ struct NowPlayingView: View {
                 }
             }
             .padding(.top, 8)
-            .task(id: item.id) {
-                recommendations = await SourceRegistry.shared.youtube.relatedVideos(for: item)
-            }
         }
     }
 }

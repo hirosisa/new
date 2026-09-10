@@ -51,6 +51,9 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
+        // Inline: the large title is scroll content and rubber-bands down
+        // with a pull-to-refresh, which read as the header moving.
+        .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .top, spacing: 0) {
             Picker("Shelf", selection: $shelf) {
                 ForEach(Shelf.allCases) { shelf in

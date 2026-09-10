@@ -468,6 +468,27 @@ struct YouTubeSource: MediaSource {
         return results
     }
 
+    /// A single-file progressive URL suitable for offline download: the best
+    /// audio-only m4a, or the muxed mp4 for video (which carries audio). The
+    /// same client chain as `resolveStream`, minus HLS — the rewritten masters
+    /// are local playlist files, not downloadable single streams.
+    func downloadableStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {
+        var lastError: Error?
+        for profile in Self.orderedPlayerClients() {
+            do {
+                let response = try await playerResponse(videoID: item.nativeID, profile: profile)
+                if response.unplayableReason != nil { continue }
+                let url = preferAudioOnly
+                    ? response.bestProgressiveAudioURL
+                    : (response.bestMuxedURL ?? response.bestProgressiveAudioURL)
+                if let url { return url }
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? SourceError.noStream(item.title)
+    }
+
     // MARK: - Stream resolution
 
     func resolveStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {

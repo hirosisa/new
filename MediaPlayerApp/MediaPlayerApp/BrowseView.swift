@@ -7,6 +7,7 @@ struct BrowseView: View {
     @EnvironmentObject private var registry: SourceRegistry
 
     @StateObject private var model = BrowseModel()
+    @State private var suggestions: [MediaItem] = []
     @State private var kindFilter: KindFilter = .all
 
     enum KindFilter: String, CaseIterable, Identifiable {
@@ -27,6 +28,21 @@ struct BrowseView: View {
 
     var body: some View {
         List {
+            // Home state: recommendations seeded from what the user actually
+            // played, mirroring YouTube's home rail.
+            if model.query.trimmingCharacters(in: .whitespaces).isEmpty, !suggestions.isEmpty {
+                Section {
+                    ForEach(suggestions) { rec in
+                        ResultRow(item: rec) {
+                            engine.play(item: rec, in: suggestions)
+                            library.notePlayed(rec)
+                        }
+                    }
+                } header: {
+                    Text("Recommended for you")
+                }
+            }
+
             if !model.failures.isEmpty {
                 Section {
                     ForEach(model.failures, id: \.self) { failure in
@@ -82,6 +98,23 @@ struct BrowseView: View {
         // cancellation, so overlapping requests could resolve out of order.
         .task(id: model.query) {
             await model.runSearch(registry: registry)
+        }
+        // Home-state recommendations: seeded from the most recent plays.
+        .task(id: library.recents.prefix(3).map(\.id).joined(separator: "|")) {
+            let seeds = library.recents.filter { $0.sourceID == SourceRegistry.primarySourceID }.prefix(3)
+            guard !seeds.isEmpty else {
+                suggestions = []
+                return
+            }
+            var merged: [MediaItem] = []
+            var seen = Set<String>()
+            for seed in seeds {
+                for rec in await registry.youtube.relatedVideos(for: seed) {
+                    if seen.insert(rec.id).inserted { merged.append(rec) }
+                }
+            }
+            let recentIDs = Set(library.recents.map(\.id))
+            suggestions = Array(merged.filter { !recentIDs.contains($0.id) }.prefix(15))
         }
     }
 

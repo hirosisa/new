@@ -256,6 +256,11 @@ final class PlayerEngine: ObservableObject {
     }
 
     private func resolveStreamURL(for item: MediaItem) async throws -> URL {
+        // Downloaded items play from disk first: they never expire and work
+        // offline. `localFile` picks the format matching the current mode.
+        if let local = DownloadManager.shared.localFile(for: item, audioOnly: audioOnly) {
+            return local
+        }
         guard let source = registry.source(for: item) else {
             // Fall back to an embedded URL if the source has been removed.
             if let url = item.streamURL { return url }

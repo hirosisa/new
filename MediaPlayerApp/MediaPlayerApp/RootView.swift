@@ -5,7 +5,7 @@ struct RootView: View {
     @State private var showNowPlaying = false
 
     enum Tab: Hashable {
-        case browse, library, settings
+        case browse, library
     }
 
     var body: some View {
@@ -23,13 +23,6 @@ struct RootView: View {
             .miniPlayerInset(isPresented: $showNowPlaying)
             .tabItem { Label("Library", systemImage: "heart.fill") }
             .tag(Tab.library)
-
-            NavigationStack {
-                SettingsView()
-            }
-            .miniPlayerInset(isPresented: $showNowPlaying)
-            .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-            .tag(Tab.settings)
         }
         .fullScreenCover(isPresented: $showNowPlaying) {
             NowPlayingView()
