@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import UIKit
 
 /// One player screen for both audio and video.
 ///
@@ -68,6 +69,25 @@ struct NowPlayingView: View {
             .fullScreenCover(isPresented: $showFullScreenVideo) {
                 FullScreenPlayer(player: engine.player)
                     .ignoresSafeArea()
+                    .overlay(alignment: .bottomTrailing) {
+                        // Force-rotate like YouTube: works even with the
+                        // device's portrait lock on, because the presented
+                        // player supports landscape.
+                        Button {
+                            OrientationRequest.landscapeLeft()
+                        } label: {
+                            Image(systemName: "rotate.left")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(12)
+                                .background(.black.opacity(0.55), in: Circle())
+                        }
+                        .padding(20)
+                        .accessibilityLabel("Rotate to landscape")
+                    }
+                    .onChange(of: showFullScreenVideo) { _, isPresented in
+                        if !isPresented { OrientationRequest.portrait() }
+                    }
             }
             .alert(
                 "Download failed",
@@ -468,6 +488,27 @@ struct NowPlayingView: View {
             }
             .padding(.top, 8)
         }
+    }
+}
+
+/// Forces an orientation change even while the device's rotation lock is on —
+/// iOS allows a geometry update when the top view controller (the presented
+/// full-screen player) supports the requested orientation.
+private enum OrientationRequest {
+    static func landscapeLeft() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeLeft))
+        scene.keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+    }
+
+    static func portrait() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        scene.keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
     }
 }
 
