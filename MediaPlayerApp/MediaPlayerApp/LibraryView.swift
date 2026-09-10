@@ -182,6 +182,23 @@ struct LibraryView: View {
             } else {
                 selected.insert(item.id)
             }
+        } onDelete: {
+            deleteOne(item)
+        }
+    }
+
+    /// Per-shelf single-item delete for the swipe action.
+    private func deleteOne(_ item: MediaItem) {
+        switch shelf {
+        case .favorites:
+            library.removeFavorites(ids: [item.id])
+        case .recents:
+            library.removeRecents(ids: [item.id])
+        case .downloads:
+            downloads.delete(item)
+        case .files:
+            try? LocalFilesSource.delete(item)
+            refreshLocalItems()
         }
     }
 
@@ -368,6 +385,7 @@ private struct LibraryRow: View {
     var isSelected: Bool = false
     let onPlay: () -> Void
     var onToggleSelect: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -414,6 +432,13 @@ private struct LibraryRow: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let onDelete {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
             Button {
                 engine.addToQueue([item])
             } label: {
