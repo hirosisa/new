@@ -500,9 +500,22 @@ struct YouTubeSource: MediaSource {
                 if response.unplayableReason == nil, let hls = response.hlsURL {
                     return hls
                 }
+                if let reason = response.unplayableReason {
+                    hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) refused: \(reason, privacy: .public)")
+                }
             } catch {
+                hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 continue
             }
+        }
+        // Direct chain empty. Fall back through the exact path playback uses:
+        // resolving in video mode returns the locally rewritten master (a file
+        // URL) whenever HLS is available — it keeps every audio-group and
+        // variant URI the downloader needs.
+        if let url = try? await resolveStream(for: item, preferAudioOnly: false),
+           url.isFileURL || (url.scheme?.lowercased() == "https" && looksLikeHLS(url)) {
+            hlsLog.error("hlsMasterURL: falling back to the resolveStream master")
+            return url
         }
         return nil
     }
