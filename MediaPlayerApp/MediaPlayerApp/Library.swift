@@ -265,7 +265,7 @@ final class DownloadManager: ObservableObject {
                     throw SourceError.notConfigured("Downloads are YouTube-only.")
                 }
 
-                guard let result else {
+                guard let (data, ext) = result else {
                     throw SourceError.notConfigured(
                         [hlsReasons, singleFileReasons].compactMap { $0 }
                             .joined(separator: " | ")
