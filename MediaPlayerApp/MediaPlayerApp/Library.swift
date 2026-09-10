@@ -83,6 +83,12 @@ final class Library: ObservableObject {
         save()
     }
 
+    func removeRecents(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        recents.removeAll { ids.contains($0.id) }
+        save()
+    }
+
     // MARK: - Persistence
 
     private struct Payload: Codable {

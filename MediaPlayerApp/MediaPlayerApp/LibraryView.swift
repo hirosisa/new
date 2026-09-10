@@ -11,6 +11,9 @@ struct LibraryView: View {
     @State private var localItems: [MediaItem] = []
     @State private var showImporter = false
     @State private var importError: String?
+    @State private var isSelecting = false
+    @State private var selected: Set<String> = []
+    @State private var showDeleteConfirmation = false
 
     /// Named `Shelf` rather than `Section` so it can't be confused with
     /// `SwiftUI.Section` inside this file's view builders.
@@ -32,6 +35,10 @@ struct LibraryView: View {
         case .downloads: return downloads.allDownloads()
         case .files: return localItems
         }
+    }
+
+    private var selectedItems: [MediaItem] {
+        items.filter { selected.contains($0.id) }
     }
 
     var body: some View {
@@ -85,8 +92,48 @@ struct LibraryView: View {
         .task(id: shelf) {
             if shelf == .files { refreshLocalItems() }
         }
+        .onChange(of: shelf) {
+            isSelecting = false
+            selected.removeAll()
+        }
         .refreshable {
             if shelf == .files { refreshLocalItems() }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                HStack {
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Delete (\(selected.count))", systemImage: "trash")
+                    }
+                    .disabled(selected.isEmpty)
+
+                    Spacer()
+
+                    Button {
+                        engine.addToQueue(selectedItems)
+                        isSelecting = false
+                        selected.removeAll()
+                    } label: {
+                        Label("Add to queue", systemImage: "text.append")
+                    }
+                    .disabled(selected.isEmpty)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+        .confirmationDialog(
+            "Delete \(selectedItems.count) selected item\(selectedItems.count == 1 ? "" : "s")?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteSelected()
+            }
         }
     }
 
@@ -121,9 +168,20 @@ struct LibraryView: View {
     }
 
     private func row(for item: MediaItem) -> some View {
-        LibraryRow(item: item) {
+        LibraryRow(
+            item: item,
+            isSelecting: isSelecting,
+            isSelected: selected.contains(item.id)
+        ) {
             engine.play(item: item, in: items)
             library.notePlayed(item)
+        } onToggleSelect: {
+            if selected.contains(item.id) {
+                selected.remove(item.id)
+                if selected.isEmpty { isSelecting = false }
+            } else {
+                selected.insert(item.id)
+            }
         }
     }
 
@@ -143,7 +201,12 @@ struct LibraryView: View {
         }
 
         ToolbarItemGroup(placement: .topBarTrailing) {
-            if !items.isEmpty {
+            if isSelecting {
+                Button("Done") {
+                    isSelecting = false
+                    selected.removeAll()
+                }
+            } else if !items.isEmpty {
                 Menu {
                     Button("Play all", systemImage: "play.fill") {
                         guard let first = items.first else { return }
@@ -158,6 +221,12 @@ struct LibraryView: View {
 
                     Button("Add all to queue", systemImage: "text.append") {
                         engine.addToQueue(items)
+                    }
+
+                    Divider()
+
+                    Button("Select multiple", systemImage: "checkmark.circle") {
+                        isSelecting = true
                     }
 
                     Divider()
@@ -244,6 +313,24 @@ struct LibraryView: View {
         localItems.remove(atOffsets: offsets)
     }
 
+    /// Per-shelf delete for the multi-select action bar.
+    private func deleteSelected() {
+        let doomed = selectedItems
+        switch shelf {
+        case .favorites:
+            library.removeFavorites(ids: Set(doomed.map(\.id)))
+        case .recents:
+            library.removeRecents(ids: Set(doomed.map(\.id)))
+        case .downloads:
+            doomed.forEach { downloads.delete($0) }
+        case .files:
+            doomed.forEach { try? LocalFilesSource.delete($0) }
+            refreshLocalItems()
+        }
+        selected.removeAll()
+        if items.isEmpty { isSelecting = false }
+    }
+
     private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case let .success(urls):
@@ -277,10 +364,19 @@ private struct LibraryRow: View {
     @EnvironmentObject private var library: Library
 
     let item: MediaItem
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
     let onPlay: () -> Void
+    var onToggleSelect: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            }
+
             Artwork(url: item.artworkURL, fallbackSystemImage: item.kind.systemImage)
                 .frame(width: 52, height: 52)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -297,18 +393,26 @@ private struct LibraryRow: View {
 
             Spacer(minLength: 4)
 
-            if engine.currentItem?.id == item.id {
-                Image(systemName: engine.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.tint)
-            } else if item.duration > 0 {
-                Text(item.formattedDuration)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+            if !isSelecting {
+                if engine.currentItem?.id == item.id {
+                    Image(systemName: engine.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.tint)
+                } else if item.duration > 0 {
+                    Text(item.formattedDuration)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: onPlay)
+        .onTapGesture {
+            if isSelecting {
+                onToggleSelect?()
+            } else {
+                onPlay()
+            }
+        }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
                 engine.addToQueue([item])
