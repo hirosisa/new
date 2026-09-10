@@ -528,7 +528,7 @@ struct YouTubeSource: MediaSource {
     /// A direct single-file stream for the downloader's last tier: muxed
     /// first (itag 18 carries audio and video), then progressive audio.
     /// Walks the client chain; throws with the per-client reasons.
-    func singleFileStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {
+    func singleFileStream(for item: MediaItem) async throws -> URL {
         var reasons: [String] = []
         for profile in Self.orderedPlayerClients() {
             do {
@@ -545,6 +545,23 @@ struct YouTubeSource: MediaSource {
             }
         }
         throw SourceError.notConfigured(reasons.joined(separator: "; "))
+    }
+
+    /// Audio-only last resort for the downloader: a progressive audio URL,
+    /// or nil when the client chain yields none (failures are logged).
+    func progressiveAudioStream(for item: MediaItem) async throws -> URL? {
+        for profile in Self.orderedPlayerClients() {
+            do {
+                let response = try await playerResponse(videoID: item.nativeID, profile: profile)
+                if response.unplayableReason == nil,
+                   let audio = response.bestProgressiveAudioURL {
+                    return audio
+                }
+            } catch {
+                Self.hlsLog.error("progressiveAudioStream: \(profile.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return nil
     }
 
     // MARK: - Stream resolution

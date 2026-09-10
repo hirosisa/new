@@ -212,62 +212,94 @@ final class DownloadManager: ObservableObject {
                 fractions[item.id] = nil
             }
             do {
-                // Tier 1: the engine's already-attached master (provably works
-                // on this network). Tier 2: an HLS master from the client
-                // chain. Tier 3: a muxed single file (itag 18 — carries audio
-                // even in audio-only mode). Measured 2026-09-10: some networks
-                // receive an InnerTube response with NO hlsManifestUrl at all
-                // (IP-dependent serving), so the muxed tier is what makes
-                // downloads work there.
+                // Tier 1 (audio only): the engine's already-attached master.
+                // Tier 2 (audio only): an HLS master's audio rendition.
+                // Tier 3: muxed single file (itag 18 — video with audio).
+                //
+                // Video downloads go straight to the muxed tier: measured via
+                // ffprobe, YouTube's video-variant TS segments carry NO audio
+                // stream (it lives in the separate rendition groups), and
+                // there is no remuxer on device — an HLS-tier video download
+                // would be silent.
                 var hlsReasons: String?
+                var hintReasons: String?
                 var singleFileReasons: String?
                 var result: (data: Data, ext: String)?
 
-                if let hint = masterHint,
+                // The static fetchers run on the class's @MainActor isolation,
+                // so progress writes are synchronous — no fire-and-forget Task
+                // that could land after the defer cleanup.
+                func segmentsProgress(_ fraction: Double) {
+                    self?.fractions[item.id] = fraction
+                }
+                func fileProgress(_ fraction: Double) {
+                    self?.fractions[item.id] = fraction
+                }
+
+                let youtube = registry.source(for: item) as? YouTubeSource
+                if audioOnly, let hint = masterHint,
                    hint.isFileURL || hint.pathExtension.lowercased() == "m3u8" {
-                    result = try await Self.fetchSegments(
-                        master: hint,
-                        audioOnly: audioOnly
-                    ) { [weak self] fraction in
-                        Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
+                    do {
+                        result = try await Self.fetchSegments(
+                            master: hint,
+                            audioOnly: true,
+                            onProgress: segmentsProgress
+                        )
+                    } catch {
+                        hintReasons = (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
                     }
-                } else if let youtube = registry.source(for: item) as? YouTubeSource {
+                }
+                if audioOnly, result == nil, let youtube {
                     do {
                         let master = try await youtube.hlsMasterURL(for: item)
                         result = try await Self.fetchSegments(
                             master: master,
-                            audioOnly: audioOnly
-                        ) { [weak self] fraction in
-                            Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
-                        }
+                            audioOnly: true,
+                            onProgress: segmentsProgress
+                        )
                     } catch {
                         hlsReasons = (error as? LocalizedError)?.errorDescription
                             ?? error.localizedDescription
                     }
-                    if result == nil {
-                        do {
-                            let remote = try await youtube.singleFileStream(
-                                for: item,
-                                preferAudioOnly: audioOnly
-                            )
+                }
+                if result == nil, let youtube {
+                    do {
+                        let remote = try await youtube.singleFileStream(for: item)
+                        result = try await Self.fetchWholeFile(
+                            remote,
+                            audioOnly: audioOnly,
+                            onProgress: fileProgress
+                        )
+                    } catch {
+                        singleFileReasons = (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                    }
+                }
+                if let youtube, audioOnly, result == nil {
+                    // One more try for audio: the muxed tier above already ran;
+                    // a progressive-audio-only URL is the last resort.
+                    do {
+                        if let remote = try await youtube.progressiveAudioStream(for: item) {
                             result = try await Self.fetchWholeFile(
                                 remote,
-                                audioOnly: audioOnly
-                            ) { [weak self] fraction in
-                                Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
-                            }
-                        } catch {
-                            singleFileReasons = (error as? LocalizedError)?.errorDescription
-                                ?? error.localizedDescription
+                                audioOnly: true,
+                                onProgress: fileProgress
+                            )
                         }
+                    } catch {
+                        singleFileReasons = (singleFileReasons.map { $0 + " | " } ?? "")
+                            + ((error as? LocalizedError)?.errorDescription
+                                ?? error.localizedDescription)
                     }
-                } else {
+                }
+                if result == nil, youtube == nil {
                     throw SourceError.notConfigured("Downloads are YouTube-only.")
                 }
 
                 guard let (data, ext) = result else {
                     throw SourceError.notConfigured(
-                        [hlsReasons, singleFileReasons].compactMap { $0 }
+                        [hintReasons, hlsReasons, singleFileReasons].compactMap { $0 }
                             .joined(separator: " | ")
                     )
                 }
@@ -437,14 +469,18 @@ final class DownloadManager: ObservableObject {
         var start = 0
         while start < total {
             let end = min(start + chunkSize, total) - 1
+            let expected = end - start + 1
             var chunk: Data?
             for _ in 0..<2 { // one retry per chunk
                 do {
                     let (bytes, response) = try await URLSession.shared.bytes(
                         for: rangedRequest(start...end)
                     )
+                    // A ranged request MUST answer 206: a 200 means the Range
+                    // header was ignored and the full body would be appended
+                    // at a non-zero offset — silent corruption.
                     guard let http = response as? HTTPURLResponse,
-                          (200...299).contains(http.statusCode) else {
+                          http.statusCode == 206 else {
                         throw SourceError.http(
                             status: (response as? HTTPURLResponse)?.statusCode ?? -1,
                             host: remote.host ?? "googlevideo"
@@ -452,6 +488,12 @@ final class DownloadManager: ObservableObject {
                     }
                     var received = Data()
                     for try await byte in bytes { received.append(byte) }
+                    // Short reads must not advance past unread bytes.
+                    guard received.count == expected else {
+                        throw SourceError.transport(
+                            "Chunk \(start)-\(end) delivered \(received.count)/\(expected) bytes."
+                        )
+                    }
                     chunk = received
                     break
                 } catch {
@@ -459,14 +501,10 @@ final class DownloadManager: ObservableObject {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
             }
-            guard var received = chunk else {
+            guard let received = chunk else {
                 throw SourceError.transport(
                     "Chunk \(start)-\(end) failed after retry."
                 )
-            }
-            if received.count == end - start + 1, received.count >= 4 {
-                // Defensive trim: some servers pad the last chunk.
-                received = received.prefix(end - start + 1)
             }
             data.append(received)
             start = end + 1
