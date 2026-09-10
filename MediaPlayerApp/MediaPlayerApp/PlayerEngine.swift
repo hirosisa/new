@@ -240,10 +240,19 @@ final class PlayerEngine: ObservableObject {
             } catch {
                 if Task.isCancelled { return }
                 self.isLoading = false
-                self.errorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
+                self.errorMessage = diagnosticDescription(error)
             }
         }
+    }
+
+    /// `localizedDescription` alone often reads "An unknown error occurred"
+    /// (AVFoundation's AVErrorUnknown), which is undiagnosable from a phone
+    /// with no console attached. Appending the NSError domain and code makes
+    /// the on-screen message actionable.
+    private func diagnosticDescription(of error: Error) -> String {
+        let ns = error as NSError
+        let base = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        return "\(base) [\(ns.domain) \(ns.code)]"
     }
 
     private func resolveStreamURL(for item: MediaItem) async throws -> URL {
@@ -388,7 +397,7 @@ final class PlayerEngine: ObservableObject {
 
         guard !retriedCurrentItem else {
             isLoading = false
-            errorMessage = error?.localizedDescription ?? "Couldn't play “\(item.title)”."
+            errorMessage = error.map(diagnosticDescription) ?? "Couldn't play “\(item.title)”."
             return
         }
         retriedCurrentItem = true
@@ -405,8 +414,7 @@ final class PlayerEngine: ObservableObject {
             } catch {
                 if Task.isCancelled { return }
                 self.isLoading = false
-                self.errorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
+                self.errorMessage = diagnosticDescription(error)
             }
         }
     }
