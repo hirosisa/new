@@ -493,19 +493,23 @@ struct YouTubeSource: MediaSource {
     /// Used by the offline downloader, which fetches playlists and segments
     /// itself — the progressive endpoint that single-file downloads would use
     /// fails outright on some networks (measured on-device: NSURLErrorDomain -1).
-    func hlsMasterURL(for item: MediaItem) async -> URL? {
+    /// Throws with the per-client reasons when no master can be produced, so
+    /// the download alert says exactly which stage refused instead of a bare
+    /// "no HLS manifest".
+    func hlsMasterURL(for item: MediaItem) async throws -> URL {
+        var reasons: [String] = []
         for profile in Self.orderedPlayerClients() {
             do {
                 let response = try await playerResponse(videoID: item.nativeID, profile: profile)
                 if response.unplayableReason == nil, let hls = response.hlsURL {
                     return hls
                 }
-                if let reason = response.unplayableReason {
-                    hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) refused: \(reason, privacy: .public)")
-                }
+                let reason = response.unplayableReason ?? "no HLS manifest in response"
+                reasons.append("\(profile.name): \(reason)")
+                hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) — \(reason, privacy: .public)")
             } catch {
+                reasons.append("\(profile.name): \(error.localizedDescription)")
                 hlsLog.error("hlsMasterURL: \(profile.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                continue
             }
         }
         // Direct chain empty. Fall back through the exact path playback uses:
@@ -517,7 +521,8 @@ struct YouTubeSource: MediaSource {
             hlsLog.error("hlsMasterURL: falling back to the resolveStream master")
             return url
         }
-        return nil
+        reasons.append("fallback resolve: no playable master")
+        throw SourceError.notConfigured(reasons.joined(separator: "; "))
     }
 
     // MARK: - Stream resolution
