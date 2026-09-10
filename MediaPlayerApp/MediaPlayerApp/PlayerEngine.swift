@@ -58,8 +58,8 @@ enum VolumeBoost {
 
     private static func tapInit(
         _ tap: MTAudioProcessingTap,
-        clientInfo: UnsafeMutableRawPointer?,
-        tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>
+        _ clientInfo: UnsafeMutableRawPointer?,
+        _ tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>
     ) {
         tapStorageOut.pointee = clientInfo
     }
@@ -70,11 +70,11 @@ enum VolumeBoost {
 
     private static func tapProcess(
         _ tap: MTAudioProcessingTap,
-        numberFrames: CMItemCount,
-        flags: MTAudioProcessingTapFlags,
-        bufferListInOut: UnsafeMutablePointer<AudioBufferList>,
-        numberFramesOut: UnsafeMutablePointer<CMItemCount>,
-        flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
+        _ numberFrames: CMItemCount,
+        _ flags: MTAudioProcessingTapFlags,
+        _ bufferListInOut: UnsafeMutablePointer<AudioBufferList>,
+        _ numberFramesOut: UnsafeMutablePointer<CMItemCount>,
+        _ flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
     ) {
         let status = MTAudioProcessingTapGetSourceAudio(
             tap,
