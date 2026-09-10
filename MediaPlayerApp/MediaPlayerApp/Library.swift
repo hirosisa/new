@@ -229,10 +229,10 @@ final class DownloadManager: ObservableObject {
                 // The static fetchers run on the class's @MainActor isolation,
                 // so progress writes are synchronous — no fire-and-forget Task
                 // that could land after the defer cleanup.
-                func segmentsProgress(_ fraction: Double) {
+                @MainActor func segmentsProgress(_ fraction: Double) {
                     self.fractions[item.id] = fraction
                 }
-                func fileProgress(_ fraction: Double) {
+                @MainActor func fileProgress(_ fraction: Double) {
                     self.fractions[item.id] = fraction
                 }
 
@@ -331,7 +331,7 @@ final class DownloadManager: ObservableObject {
     private static func fetchSegments(
         master: URL,
         audioOnly: Bool,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @MainActor (Double) -> Void
     ) async throws -> (Data, String) {
         let coreMedia = "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)"
 
@@ -406,7 +406,7 @@ final class DownloadManager: ObservableObject {
                 )
             }
             for try await byte in bytes { data.append(byte) }
-            onProgress(Double(offset + 1) / Double(segments.count))
+            await onProgress(Double(offset + 1) / Double(segments.count))
         }
         return (data, sniffExtension(of: data))
     }
@@ -419,7 +419,7 @@ final class DownloadManager: ObservableObject {
     private static func fetchWholeFile(
         _ remote: URL,
         audioOnly: Bool,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @MainActor (Double) -> Void
     ) async throws -> (Data, String) {
         let coreMedia = "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)"
         let chunkSize = 1_048_576
@@ -508,7 +508,7 @@ final class DownloadManager: ObservableObject {
             }
             data.append(received)
             start = end + 1
-            onProgress(min(0.99, Double(start) / Double(total)))
+            await onProgress(min(0.99, Double(start) / Double(total)))
         }
         return (data, Self.sniffMediaExtension(data, audioOnly: audioOnly))
     }
