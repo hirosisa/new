@@ -240,7 +240,7 @@ final class PlayerEngine: ObservableObject {
             } catch {
                 if Task.isCancelled { return }
                 self.isLoading = false
-                self.errorMessage = diagnosticDescription(error)
+                self.errorMessage = diagnosticDescription(of: error)
             }
         }
     }
@@ -420,7 +420,7 @@ final class PlayerEngine: ObservableObject {
             } catch {
                 if Task.isCancelled { return }
                 self.isLoading = false
-                self.errorMessage = diagnosticDescription(error)
+                self.errorMessage = diagnosticDescription(of: error)
             }
         }
     }
