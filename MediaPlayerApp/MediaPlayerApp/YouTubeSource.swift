@@ -225,6 +225,17 @@ struct YouTubeSource: MediaSource {
         set { UserDefaults.standard.set(newValue, forKey: "youtubeLastGoodClient") }
     }
 
+    /// Video IDs whose HLS master stalled AVPlayer this session. The next resolve
+    /// skips HLS and uses a muxed progressive stream instead.
+    private static let hlsSkip = HLSSkipState()
+    /// The rewritten master has to stay on disk for as long as AVPlayer is using it.
+    private static var retainedHLSFile: URL?
+
+    /// Called by the player when HLS never starts. Next resolve uses muxed MP4.
+    static func disableHLS(for item: MediaItem) {
+        hlsSkip.insert(item.nativeID)
+    }
+
     /// The player chain, with the last known-good client moved to the front.
     private static func orderedPlayerClients() -> [ClientProfile] {
         guard let preferred = lastGoodPlayerClientID,
@@ -329,6 +340,7 @@ struct YouTubeSource: MediaSource {
 
     func resolveStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {
         let allowHLSGlobally = !Self.preferProgressiveVideo
+            && !Self.hlsSkip.contains(item.nativeID)
 
         var refusalReason: String?
         var lastError: Error?
@@ -353,18 +365,18 @@ struct YouTubeSource: MediaSource {
                     allowHLS: allowHLSGlobally && profile.providesHLS
                 ) {
                     Self.lastGoodPlayerClientID = profile.id
-                    return url
+                    return await Self.playableURL(url)
                 }
 
                 if compromise == nil {
-                    compromise = Self.selectAnyStream(from: response)
+                    compromise = Self.selectAnyStream(from: response, allowHLS: allowHLSGlobally)
                 }
             } catch {
                 lastError = error
             }
         }
 
-        if let compromise { return compromise }
+        if let compromise { return await Self.playableURL(compromise) }
         if let refusalReason { throw SourceError.notConfigured(refusalReason) }
         if let lastError { throw lastError }
         throw SourceError.noStream(item.title)
@@ -384,8 +396,129 @@ struct YouTubeSource: MediaSource {
     }
 
     /// Anything playable at all, as a last resort.
-    private static func selectAnyStream(from response: PlayerResponse) -> URL? {
-        response.hlsURL ?? response.bestMuxedURL ?? response.bestProgressiveAudioURL
+    private static func selectAnyStream(from response: PlayerResponse, allowHLS: Bool) -> URL? {
+        if allowHLS, let hls = response.hlsURL { return hls }
+        return response.bestMuxedURL ?? response.bestProgressiveAudioURL
+    }
+
+    /// HLS masters from the iOS client lead with VP9. AVPlayer often stalls on
+    /// that; rewrite to H.264 variants when we can, otherwise pass the URL through.
+    private static func playableURL(_ url: URL) async -> URL {
+        guard looksLikeHLS(url), let rewritten = await avcOnlyMaster(from: url) else {
+            return url
+        }
+        return rewritten
+    }
+
+    private static func looksLikeHLS(_ url: URL) -> Bool {
+        let value = url.absoluteString.lowercased()
+        return value.contains(".m3u8") || value.contains("manifest/hls")
+    }
+
+    /// Fetch the remote master and keep only `avc1` + AAC variants. Measured
+    /// 2026-09-10: 10 VP9 renditions vs 7 H.264, so AVPlayer's first pick is VP9.
+    private static func avcOnlyMaster(from remote: URL) async -> URL? {
+        do {
+            var request = URLRequest(url: remote)
+            request.timeoutInterval = 20
+            request.setValue(
+                "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)",
+                forHTTPHeaderField: "User-Agent"
+            )
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode),
+                  let text = String(data: data, encoding: .utf8)
+            else { return nil }
+
+            let rewritten = filterMasterToAVC(text)
+            guard rewritten.contains("#EXT-X-STREAM-INF") else { return nil }
+
+            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let file = caches.appendingPathComponent("yt-hls-\(UUID().uuidString).m3u8")
+            try rewritten.write(to: file, atomically: true, encoding: .utf8)
+            if let previous = retainedHLSFile, previous != file {
+                try? FileManager.default.removeItem(at: previous)
+            }
+            retainedHLSFile = file
+            return file
+        } catch {
+            return nil
+        }
+    }
+
+    /// Keep H.264 video + the AAC audio groups those variants reference.
+    static func filterMasterToAVC(_ playlist: String) -> String {
+        let lines = playlist.split(whereSeparator: \.isNewline).map(String.init)
+        var keptAudioGroups = Set<String>()
+        var keepStream = Array(repeating: false, count: lines.count)
+
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            if line.hasPrefix("#EXT-X-STREAM-INF:") {
+                let codecs = attribute(named: "CODECS", in: line)?.lowercased() ?? ""
+                let isAVC = codecs.contains("avc1") && !codecs.contains("vp09") && !codecs.contains("av01")
+                keepStream[index] = isAVC
+                if index + 1 < lines.count { keepStream[index + 1] = isAVC }
+                if isAVC, let group = attribute(named: "AUDIO", in: line) {
+                    keptAudioGroups.insert(group)
+                }
+                index += 2
+                continue
+            }
+            index += 1
+        }
+
+        if keptAudioGroups.isEmpty && !keepStream.contains(true) {
+            return playlist
+        }
+
+        var output: [String] = []
+        index = 0
+        while index < lines.count {
+            let line = lines[index]
+            if line.hasPrefix("#EXT-X-STREAM-INF:") {
+                if keepStream[index] {
+                    output.append(line)
+                    if index + 1 < lines.count { output.append(lines[index + 1]) }
+                }
+                index += 2
+                continue
+            }
+            if line.hasPrefix("#EXT-X-MEDIA:") {
+                let type = attribute(named: "TYPE", in: line)
+                if type == "AUDIO" {
+                    if let group = attribute(named: "GROUP-ID", in: line), keptAudioGroups.contains(group) {
+                        output.append(line)
+                    }
+                    index += 1
+                    continue
+                }
+                // Drop captions / timed-text — they aren't needed for playback.
+                if type == "SUBTITLES" {
+                    index += 1
+                    continue
+                }
+            }
+            output.append(line)
+            index += 1
+        }
+        return output.joined(separator: "\n") + "\n"
+    }
+
+    private static func attribute(named name: String, in line: String) -> String? {
+        // AUDIO="234" or CODECS="avc1.4D401E,mp4a.40.2"
+        let pattern = "\(name)="
+        guard let range = line.range(of: pattern) else { return nil }
+        let rest = line[range.upperBound...]
+        if rest.hasPrefix("\"") {
+            let inner = rest.dropFirst()
+            guard let end = inner.firstIndex(of: "\"") else { return nil }
+            return String(inner[..<end])
+        }
+        let end = rest.firstIndex(where: { $0 == "," || $0 == "\r" }) ?? rest.endIndex
+        return String(rest[..<end])
     }
 
     private func playerResponse(videoID: String,
@@ -459,6 +592,25 @@ struct YouTubeSource: MediaSource {
         case 3: return parts[0] * 3600 + parts[1] * 60 + parts[2]
         default: return 0
         }
+    }
+}
+
+/// Session-scoped set of video IDs that stalled on HLS. Not an actor so the
+/// player can mark a skip from the main actor without an isolation hop.
+private final class HLSSkipState: @unchecked Sendable {
+    private var ids = Set<String>()
+    private let lock = NSLock()
+
+    func insert(_ id: String) {
+        lock.lock()
+        ids.insert(id)
+        lock.unlock()
+    }
+
+    func contains(_ id: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return ids.contains(id)
     }
 }
 
@@ -550,8 +702,13 @@ private struct PlayerResponse: Decodable {
         /// A muxed format carries both tracks, which is what makes it usable
         /// standalone — `adaptiveFormats` split video and audio into separate URLs
         /// that AVPlayer cannot recombine from two remote sources.
+        ///
+        /// Do not use `qualityLabel` as the muxed signal: every adaptive video-only
+        /// itag also has one (`1080p`, `720p`, …). Playing those is silent video.
+        /// Real muxed progressive (itag 18) looks like
+        /// `video/mp4; codecs="avc1.42001E, mp4a.40.2"`.
         var isMuxed: Bool {
-            mime.hasPrefix("video/") && url != nil && qualityLabel != nil
+            mime.hasPrefix("video/") && url != nil && mime.contains("mp4a")
         }
     }
 
