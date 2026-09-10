@@ -212,21 +212,64 @@ final class DownloadManager: ObservableObject {
                 fractions[item.id] = nil
             }
             do {
-                let master: URL
+                // Tier 1: the engine's already-attached master (provably works
+                // on this network). Tier 2: an HLS master from the client
+                // chain. Tier 3: a muxed single file (itag 18 — carries audio
+                // even in audio-only mode). Measured 2026-09-10: some networks
+                // receive an InnerTube response with NO hlsManifestUrl at all
+                // (IP-dependent serving), so the muxed tier is what makes
+                // downloads work there.
+                var hlsReasons: String?
+                var singleFileReasons: String?
+                var result: (data: Data, ext: String)?
+
                 if let hint = masterHint,
                    hint.isFileURL || hint.pathExtension.lowercased() == "m3u8" {
-                    master = hint
-                } else {
-                    guard let youtube = registry.source(for: item) as? YouTubeSource else {
-                        throw SourceError.notConfigured("Downloads are YouTube-only.")
+                    result = try await Self.fetchSegments(
+                        master: hint,
+                        audioOnly: audioOnly
+                    ) { [weak self] fraction in
+                        Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
                     }
-                    master = try await youtube.hlsMasterURL(for: item)
+                } else if let youtube = registry.source(for: item) as? YouTubeSource {
+                    do {
+                        let master = try await youtube.hlsMasterURL(for: item)
+                        result = try await Self.fetchSegments(
+                            master: master,
+                            audioOnly: audioOnly
+                        ) { [weak self] fraction in
+                            Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
+                        }
+                    } catch {
+                        hlsReasons = (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                    }
+                    if result == nil {
+                        do {
+                            let remote = try await youtube.singleFileStream(
+                                for: item,
+                                preferAudioOnly: audioOnly
+                            )
+                            result = try await Self.fetchWholeFile(
+                                remote,
+                                audioOnly: audioOnly
+                            ) { [weak self] fraction in
+                                Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
+                            }
+                        } catch {
+                            singleFileReasons = (error as? LocalizedError)?.errorDescription
+                                ?? error.localizedDescription
+                        }
+                    }
+                } else {
+                    throw SourceError.notConfigured("Downloads are YouTube-only.")
                 }
-                let (data, ext) = try await Self.fetchSegments(
-                    master: master,
-                    audioOnly: audioOnly
-                ) { [weak self] fraction in
-                    Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
+
+                guard let result else {
+                    throw SourceError.notConfigured(
+                        [hlsReasons, singleFileReasons].compactMap { $0 }
+                            .joined(separator: " | ")
+                    )
                 }
 
                 let file = directory.appendingPathComponent("\(item.id).\(ext)")
@@ -334,6 +377,48 @@ final class DownloadManager: ObservableObject {
             onProgress(Double(offset + 1) / Double(segments.count))
         }
         return (data, sniffExtension(of: data))
+    }
+
+    /// Last tier: download a single progressive file (muxed itag 18 or
+    /// progressive audio). Sniffs the container for the extension — both
+    /// fMP4 flavors land as `.m4a`/`.mp4` per mode, everything else as `.ts`.
+    private static func fetchWholeFile(
+        _ remote: URL,
+        audioOnly: Bool,
+        onProgress: @escaping (Double) -> Void
+    ) async throws -> (Data, String) {
+        var request = URLRequest(url: remote)
+        request.setValue(
+            "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)",
+            forHTTPHeaderField: "User-Agent"
+        )
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else {
+            throw SourceError.http(
+                status: (response as? HTTPURLResponse)?.statusCode ?? -1,
+                host: remote.host ?? "googlevideo"
+            )
+        }
+        let expected = max(http.expectedContentLength, 0)
+
+        var data = Data()
+        for try await byte in bytes {
+            data.append(byte)
+            if expected > 0 {
+                onProgress(min(0.99, Double(data.count) / Double(expected)))
+            }
+        }
+        let head = [UInt8](data.prefix(4))
+        let ext: String
+        if head.elementsEqual(Array("ftyp".utf8)) {
+            ext = audioOnly ? "m4a" : "mp4"
+        } else if head.first == 0x47 {
+            ext = "ts"
+        } else {
+            ext = "m4a"
+        }
+        return (data, ext)
     }
 
     /// Container sniffing: MPEG-TS → .ts, ID3/ADTS AAC → .aac, fMP4 → .mp4.

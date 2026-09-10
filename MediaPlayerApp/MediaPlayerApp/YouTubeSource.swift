@@ -525,6 +525,28 @@ struct YouTubeSource: MediaSource {
         throw SourceError.notConfigured(reasons.joined(separator: "; "))
     }
 
+    /// A direct single-file stream for the downloader's last tier: muxed
+    /// first (itag 18 carries audio and video), then progressive audio.
+    /// Walks the client chain; throws with the per-client reasons.
+    func singleFileStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {
+        var reasons: [String] = []
+        for profile in Self.orderedPlayerClients() {
+            do {
+                let response = try await playerResponse(videoID: item.nativeID, profile: profile)
+                if response.unplayableReason == nil {
+                    if let muxed = response.bestMuxedURL { return muxed }
+                    if let audio = response.bestProgressiveAudioURL { return audio }
+                    reasons.append("\(profile.name): no muxed or audio URL")
+                } else {
+                    reasons.append("\(profile.name): \(response.unplayableReason ?? "refused")")
+                }
+            } catch {
+                reasons.append("\(profile.name): \(error.localizedDescription)")
+            }
+        }
+        throw SourceError.notConfigured(reasons.joined(separator: "; "))
+    }
+
     // MARK: - Stream resolution
 
     func resolveStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {
