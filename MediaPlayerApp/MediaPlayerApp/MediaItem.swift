@@ -105,9 +105,9 @@ enum RepeatMode: String, Codable, CaseIterable, Sendable {
 
     var next: RepeatMode {
         switch self {
-        case .off: return .all
-        case .all: return .one
-        case .one: return .off
+        case .off: return .one
+        case .one: return .all
+        case .all: return .off
         }
     }
 }

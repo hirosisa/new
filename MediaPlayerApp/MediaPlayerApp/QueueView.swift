@@ -3,6 +3,7 @@ import SwiftUI
 struct QueueView: View {
     @EnvironmentObject private var engine: PlayerEngine
     @Environment(\.dismiss) private var dismiss
+    @State private var showClearConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -36,9 +37,30 @@ struct QueueView: View {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !engine.queue.isEmpty {
-                        EditButton()
+                    HStack(spacing: 16) {
+                        if !engine.queue.isEmpty {
+                            EditButton()
+                        }
+                        // Everything except the current track goes, so the
+                        // queue stays exactly what the user queued.
+                        if engine.queue.count > 1 {
+                            Button {
+                                showClearConfirmation = true
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .accessibilityLabel("Clear queue")
+                        }
                     }
+                }
+            }
+            .confirmationDialog(
+                "Remove every queued song except the current one?",
+                isPresented: $showClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Clear queue", role: .destructive) {
+                    engine.clearQueue()
                 }
             }
         }

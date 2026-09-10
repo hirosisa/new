@@ -594,6 +594,18 @@ final class PlayerEngine: ObservableObject {
         if isShuffled { rebuildShuffleOrder(startingAt: currentIndex) }
     }
 
+    /// Removes every queued track except the one currently playing, so the
+    /// queue holds only what the user deliberately added.
+    func clearQueue(keepingCurrent: Bool = true) {
+        guard keepingCurrent, let current = currentItem else {
+            stop()
+            return
+        }
+        queue = [current]
+        currentIndex = 0
+        if isShuffled { rebuildShuffleOrder(startingAt: 0) }
+    }
+
     func removeFromQueue(atOffsets offsets: IndexSet) {
         let removingCurrent = offsets.contains(currentIndex)
         let currentItemBefore = queue.indices.contains(currentIndex) ? queue[currentIndex] : nil

@@ -15,8 +15,10 @@ struct NowPlayingView: View {
 
     @StateObject private var pip = PiPCoordinator()
     @State private var showQueue = false
+    @State private var showFullScreenVideo = false
     @State private var scrubbing = false
     @State private var scrubValue: Double = 0
+    @State private var recommendations: [MediaItem] = []
 
     private let speeds: [Float] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
     private let sleepMinutes = [5, 10, 15, 30, 45, 60]
@@ -61,6 +63,10 @@ struct NowPlayingView: View {
                 QueueView()
                     .presentationDetents([.medium, .large])
             }
+            .fullScreenCover(isPresented: $showFullScreenVideo) {
+                FullScreenPlayer(player: engine.player)
+                    .ignoresSafeArea()
+            }
         }
     }
 
@@ -88,6 +94,8 @@ struct NowPlayingView: View {
 
                 secondaryRow(for: item)
 
+                recommendations(for: item)
+
                 Spacer(minLength: 24)
             }
             .padding(.top, 8)
@@ -110,6 +118,19 @@ struct NowPlayingView: View {
                 if engine.isLoading {
                     ProgressView().tint(.white)
                 }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    showFullScreenVideo = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .padding(10)
+                .accessibilityLabel("Full screen")
             }
         } else {
             Artwork(url: item.artworkURL, fallbackSystemImage: item.kind.systemImage)
@@ -317,4 +338,81 @@ struct NowPlayingView: View {
         }
         .padding(.top, 4)
     }
+
+    // MARK: - Recommendations
+
+    /// YouTube's own "up next" rail, fetched per current item and shown in
+    /// both audio-only and video mode. Best-effort: an empty list just means
+    /// the fetch found nothing this time.
+    @ViewBuilder
+    private func recommendations(for item: MediaItem) -> some View {
+        if !recommendations.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Recommended")
+                    .font(.headline)
+                    .padding(.horizontal, 24)
+
+                ForEach(recommendations.prefix(12)) { rec in
+                    Button {
+                        engine.playNow(rec)
+                    } label: {
+                        HStack(spacing: 12) {
+                            AsyncImage(url: rec.artworkURL) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Rectangle().fill(Color(.systemGray5))
+                            }
+                            .frame(width: 96, height: 54)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .overlay(alignment: .bottomTrailing) {
+                                if rec.duration > 0 {
+                                    Text(rec.formattedDuration)
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.white)
+                                        .padding(3)
+                                        .background(.black.opacity(0.7))
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(rec.title)
+                                    .font(.footnote.weight(.medium))
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Text(rec.author)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 24)
+                }
+            }
+            .padding(.top, 8)
+            .task(id: item.id) {
+                recommendations = await SourceRegistry.shared.youtube.relatedVideos(for: item)
+            }
+        }
+    }
+}
+
+/// Full-screen playback through the system player: standard controls,
+/// scrubbing, rotation and AirPlay for free. The engine keeps owning the
+/// shared `AVPlayer`, so entering and leaving full screen never interrupts
+/// playback.
+private struct FullScreenPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.videoGravity = .resizeAspect
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }

@@ -359,6 +359,115 @@ struct YouTubeSource: MediaSource {
         return results
     }
 
+    // MARK: - Related videos
+
+    /// Related videos for `item`, mirroring YouTube's own "up next" rail.
+    /// Best-effort: returns [] rather than throwing, so a dead endpoint can
+    /// never break playback itself.
+    func relatedVideos(for item: MediaItem) async -> [MediaItem] {
+        guard item.sourceID == id, !item.nativeID.isEmpty,
+              let url = URL(string: "\(Self.endpoint)/next") else { return [] }
+
+        for profile in Self.searchClients {
+            do {
+                let body = NextRequest(
+                    videoId: item.nativeID,
+                    context: .init(client: .init(profile: profile))
+                )
+                let data = try await client.postJSON(
+                    url: url,
+                    body: try JSONEncoder().encode(body),
+                    userAgent: profile.userAgent
+                )
+                let items = Self.parseRelatedVideos(data: data, sourceID: id)
+                if !items.isEmpty { return items }
+            } catch {
+                continue // try the next client
+            }
+        }
+        return []
+    }
+
+    /// The /next response no longer uses `compactVideoRenderer` — related
+    /// videos arrive as the modern `lockupViewModel` shape (measured live
+    /// 2026-09-10: 20 lockups, zero compact renderers), so this parses that:
+    /// `contentId` for the video ID, `lockupMetadataViewModel` for title and
+    /// author rows, and a thumbnail badge for the duration.
+    private static func parseRelatedVideos(data: Data, sourceID: String) -> [MediaItem] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) else { return [] }
+
+        var lockups: [[String: Any]] = []
+        collect(node: root, keys: ["lockupViewModel"], into: &lockups)
+
+        var seen = Set<String>()
+        var results: [MediaItem] = []
+
+        for lockup in lockups {
+            // Playlists and shorts also arrive as lockups; take videos only.
+            // Measured live value: "LOCKUP_CONTENT_TYPE_VIDEO".
+            guard let videoID = lockup["contentId"] as? String,
+                  seen.insert(videoID).inserted else { continue }
+            if let contentType = lockup["contentType"] as? String,
+               !contentType.contains("VIDEO") {
+                continue
+            }
+
+            let metadata = lockup["metadata"] as? [String: Any]
+            let lockupMetadata = metadata?["lockupMetadataViewModel"] as? [String: Any]
+            let titleNode = lockupMetadata?["title"] as? [String: Any]
+            let title = titleNode?["content"] as? String ?? "Untitled"
+
+            // Row 0 is the channel, row 1 is views + age.
+            var author = "YouTube"
+            var details: [String] = []
+            if let contentMetadata = (lockupMetadata?["metadata"] as? [String: Any])?["contentMetadataViewModel"] as? [String: Any],
+               let rows = contentMetadata["metadataRows"] as? [[String: Any]] {
+                for row in rows {
+                    if let parts = row["metadataParts"] as? [[String: Any]] {
+                        for part in parts {
+                            if let text = (part["text"] as? [String: Any])?["content"] as? String {
+                                details.append(text)
+                            }
+                        }
+                    }
+                }
+            }
+            if let first = details.first { author = first }
+
+            // The duration lives in a thumbnail overlay badge ("25:57").
+            var duration: TimeInterval = 0
+            if let image = lockup["contentImage"] as? [String: Any],
+               let thumb = image["thumbnailViewModel"] as? [String: Any],
+               let overlays = thumb["overlays"] as? [[String: Any]] {
+                for overlay in overlays {
+                    var badges: [[String: Any]] = []
+                    collect(node: overlay, keys: ["thumbnailBadgeViewModel"], into: &badges)
+                    for badge in badges {
+                        if let text = (badge["text"] as? [String: Any])?["content"] as? String {
+                            duration = parseDuration(text)
+                        }
+                    }
+                }
+            }
+
+            results.append(
+                MediaItem(
+                    sourceID: sourceID,
+                    nativeID: videoID,
+                    title: title,
+                    author: author,
+                    artworkURL: URL(string: "https://i.ytimg.com/vi/\(videoID)/mqdefault.jpg"),
+                    duration: duration,
+                    kind: .video,
+                    streamURL: nil, // resolved lazily at play time
+                    detail: details.count > 1 ? details.dropFirst().joined(separator: " · ") : nil
+                )
+            )
+        }
+
+        return results
+    }
+
     // MARK: - Stream resolution
 
     func resolveStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {
@@ -786,6 +895,11 @@ private struct PlayerRequest: Encodable {
     let videoId: String
     let contentCheckOk: Bool
     let racyCheckOk: Bool
+    let context: InnerTubeContext
+}
+
+private struct NextRequest: Encodable {
+    let videoId: String
     let context: InnerTubeContext
 }
 
