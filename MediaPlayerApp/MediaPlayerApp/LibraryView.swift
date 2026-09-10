@@ -99,15 +99,22 @@ struct LibraryView: View {
         .refreshable {
             if shelf == .files { refreshLocalItems() }
         }
-        .safeAreaInset(edge: .bottom) {
-            if isSelecting {
-                HStack {
+        .toolbar {
+            toolbarContent
+            ToolbarItemGroup(placement: .bottomBar) {
+                if isSelecting {
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
                     } label: {
                         Label("Delete (\(selected.count))", systemImage: "trash")
                     }
                     .disabled(selected.isEmpty)
+
+                    Spacer()
+
+                    Text("\(selected.count) selected")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
                     Spacer()
 
@@ -120,10 +127,6 @@ struct LibraryView: View {
                     }
                     .disabled(selected.isEmpty)
                 }
-                .buttonStyle(.bordered)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
             }
         }
         .confirmationDialog(

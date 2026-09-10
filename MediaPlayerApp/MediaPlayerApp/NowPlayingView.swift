@@ -19,6 +19,7 @@ struct NowPlayingView: View {
     @StateObject private var pip = PiPCoordinator()
     @State private var showQueue = false
     @State private var showFullScreenVideo = false
+    @State private var forceRotated = false
     @State private var scrubbing = false
     @State private var scrubValue: Double = 0
     @State private var recommendations: [MediaItem] = []
@@ -72,21 +73,22 @@ struct NowPlayingView: View {
                     .overlay(alignment: .bottomTrailing) {
                         // Force-rotate like YouTube: works even with the
                         // device's portrait lock on, because the presented
-                        // player supports landscape.
-                        Button {
-                            OrientationRequest.landscapeLeft()
-                        } label: {
-                            Image(systemName: "rotate.left")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .padding(12)
-                                .background(.black.opacity(0.55), in: Circle())
+                        // player supports landscape. Hidden once rotated —
+                        // the button's job is done.
+                        if !forceRotated {
+                            Button {
+                                forceRotated = true
+                                OrientationRequest.landscapeRight()
+                            } label: {
+                                Image(systemName: "rotate.right")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(12)
+                                    .background(.black.opacity(0.55), in: Circle())
+                            }
+                            .padding(20)
+                            .accessibilityLabel("Rotate to landscape")
                         }
-                        .padding(20)
-                        .accessibilityLabel("Rotate to landscape")
-                    }
-                    .onChange(of: showFullScreenVideo) { _, isPresented in
-                        if !isPresented { OrientationRequest.portrait() }
                     }
             }
             .alert(
@@ -99,6 +101,14 @@ struct NowPlayingView: View {
                 Button("OK") {}
             } message: {
                 Text(downloads.lastError ?? "")
+            }
+            // Attached at body level — the cover's content view is destroyed
+            // on dismissal, so an onChange there never fires.
+            .onChange(of: showFullScreenVideo) { _, isPresented in
+                if !isPresented {
+                    forceRotated = false
+                    OrientationRequest.portrait()
+                }
             }
         }
     }
