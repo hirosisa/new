@@ -76,7 +76,6 @@ struct LibraryView: View {
             .padding(.bottom, 8)
             .background(.bar)
         }
-        .toolbar { toolbarContent }
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [.audio, .movie],
@@ -101,33 +100,6 @@ struct LibraryView: View {
         }
         .toolbar {
             toolbarContent
-            ToolbarItemGroup(placement: .bottomBar) {
-                if isSelecting {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete (\(selected.count))", systemImage: "trash")
-                    }
-                    .disabled(selected.isEmpty)
-
-                    Spacer()
-
-                    Text("\(selected.count) selected")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button {
-                        engine.addToQueue(selectedItems)
-                        isSelecting = false
-                        selected.removeAll()
-                    } label: {
-                        Label("Add to queue", systemImage: "text.append")
-                    }
-                    .disabled(selected.isEmpty)
-                }
-            }
         }
         .confirmationDialog(
             "Delete \(selectedItems.count) selected item\(selectedItems.count == 1 ? "" : "s")?",
@@ -210,7 +182,25 @@ struct LibraryView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            if shelf == .files {
+            if isSelecting {
+                Menu {
+                    Button("Add all to queue", systemImage: "text.append") {
+                        engine.addToQueue(selectedItems)
+                        isSelecting = false
+                        selected.removeAll()
+                    }
+                    .disabled(selected.isEmpty)
+
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Delete all selected", systemImage: "trash")
+                    }
+                    .disabled(selected.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            } else if shelf == .files {
                 Button {
                     showImporter = true
                 } label: {
@@ -269,10 +259,6 @@ struct LibraryView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                }
-
-                if shelf != .recents {
-                    EditButton()
                 }
             }
         }
