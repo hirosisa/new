@@ -229,6 +229,24 @@ struct YouTubeSource: MediaSource {
     /// Video IDs whose HLS master stalled AVPlayer this session. The next resolve
     /// skips HLS and uses a muxed progressive stream instead.
     private static let hlsSkip = HLSSkipState()
+    /// Set when a progressive audio URL fails on-device, so the rest of the
+    /// session serves audio through the HLS endpoint instead (see
+    /// `selectPreferredStream` and `filterMasterToAudioOnly`).
+    private static let audioFallbackLock = NSLock()
+    private static var prefersHLSAudioStorage = false
+    static var preferHLSAudio: Bool {
+        get {
+            audioFallbackLock.lock()
+            defer { audioFallbackLock.unlock() }
+            return prefersHLSAudioStorage
+        }
+        set {
+            audioFallbackLock.lock()
+            prefersHLSAudioStorage = newValue
+            audioFallbackLock.unlock()
+        }
+    }
+    static func enableHLSAudioFallback() { preferHLSAudio = true }
     /// The rewritten master has to stay on disk for as long as AVPlayer is using it.
     private static var retainedHLSFile: URL?
     private static let hlsLog = Logger(subsystem: "app.mediaplayer", category: "hls")
@@ -370,7 +388,7 @@ struct YouTubeSource: MediaSource {
                     allowHLS: allowHLSGlobally && profile.providesHLS
                 ) {
                     Self.lastGoodPlayerClientID = profile.id
-                    return await Self.playableURL(url)
+                    return await Self.playableURL(url, audioOnly: preferAudioOnly)
                 }
 
                 if compromise == nil {
@@ -381,17 +399,23 @@ struct YouTubeSource: MediaSource {
             }
         }
 
-        if let compromise { return await Self.playableURL(compromise) }
+        if let compromise { return await Self.playableURL(compromise, audioOnly: preferAudioOnly) }
         if let refusalReason { throw SourceError.notConfigured(refusalReason) }
         if let lastError { throw lastError }
         throw SourceError.noStream(item.title)
     }
 
     /// Exactly what was asked for, or nil so the chain tries another client.
+    /// When `preferHLSAudio` is set (a progressive audio URL already failed on
+    /// this device's network), audio avoids the progressive endpoint entirely:
+    /// first the HLS manifest's audio renditions, then muxed progressive — the
+    /// muxed itag carries audio too, unlike the broken progressive one.
     private static func selectPreferredStream(from response: PlayerResponse,
                                               preferAudioOnly: Bool,
                                               allowHLS: Bool) -> URL? {
         if preferAudioOnly {
+            if allowHLS, preferHLSAudio, let hls = response.hlsURL { return hls }
+            if preferHLSAudio, let muxed = response.bestMuxedURL { return muxed }
             return response.bestProgressiveAudioURL
         }
         if allowHLS, let hls = response.hlsURL {
@@ -408,11 +432,14 @@ struct YouTubeSource: MediaSource {
 
     /// HLS masters from the iOS client lead with VP9. AVPlayer often stalls on
     /// that; rewrite to H.264 variants when we can, otherwise pass the URL through.
-    private static func playableURL(_ url: URL) async -> URL {
-        guard looksLikeHLS(url), let rewritten = await avcOnlyMaster(from: url) else {
-            return url
-        }
-        return rewritten
+    /// In audio-only mode the rewrite instead keeps just the audio renditions,
+    /// which is also the fallback path when progressive audio URLs fail.
+    private static func playableURL(_ url: URL, audioOnly: Bool) async -> URL {
+        guard looksLikeHLS(url) else { return url }
+        let rewritten = audioOnly
+            ? await audioOnlyMaster(from: url)
+            : await avcOnlyMaster(from: url)
+        return rewritten ?? url
     }
 
     private static func looksLikeHLS(_ url: URL) -> Bool {
@@ -420,14 +447,15 @@ struct YouTubeSource: MediaSource {
         return value.contains(".m3u8") || value.contains("manifest/hls")
     }
 
-    /// Fetch the remote master and keep only `avc1` + AAC variants. Measured
-    /// 2026-09-10: 10 VP9 renditions vs 7 H.264, so AVPlayer's first pick is VP9.
+    /// Fetch the remote master, apply `rewrite` and cache the result locally.
+    /// Measured 2026-09-10: the IOS client's master leads with VP9 (10 vs 7
+    /// H.264), so AVPlayer's first pick would be VP9.
     ///
     /// The body is streamed with a hard byte cap: `timeoutInterval` is an idle
     /// timeout that resets on every chunk, so it does not bound total transfer,
     /// and buffering an unbounded response into `Data` + `String` + line array
     /// could OOM the process. Real HLS masters are a few KB.
-    private static func avcOnlyMaster(from remote: URL) async -> URL? {
+    private static func cachedMaster(from remote: URL, rewrite: (String) -> String) async -> URL? {
         guard remote.scheme?.lowercased() == "https" else { return nil }
 
         do {
@@ -441,7 +469,7 @@ struct YouTubeSource: MediaSource {
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode)
             else {
-                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let code = hlsStatusCode(response)
                 hlsLog.error("HLS master fetch returned non-2xx (HTTP \(code, privacy: .public))")
                 return nil
             }
@@ -465,7 +493,7 @@ struct YouTubeSource: MediaSource {
                 return nil
             }
 
-            let rewritten = filterMasterToAVC(text)
+            let rewritten = rewrite(text)
             guard rewritten.contains("#EXT-X-STREAM-INF") else { return nil }
 
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -480,6 +508,22 @@ struct YouTubeSource: MediaSource {
             hlsLog.error("HLS master fetch failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }
+
+    private static func hlsStatusCode(_ response: URLResponse) -> Int {
+        (response as? HTTPURLResponse)?.statusCode ?? -1
+    }
+
+    private static func avcOnlyMaster(from remote: URL) async -> URL? {
+        cachedMaster(from: remote, rewrite: filterMasterToAVC)
+    }
+
+    /// Audio-only master: one variant per TYPE=AUDIO rendition, no video.
+    /// Used when progressive audio URLs fail on the device's network path
+    /// (measured on-device: progressive `videoplayback` requests die with
+    /// NSURLErrorDomain -1 while the HLS playlist endpoint keeps serving).
+    private static func audioOnlyMaster(from remote: URL) async -> URL? {
+        cachedMaster(from: remote, rewrite: filterMasterToAudioOnly)
     }
 
     /// Keep H.264 video + the AAC audio groups those variants reference.
@@ -543,6 +587,40 @@ struct YouTubeSource: MediaSource {
             }
             output.append(line)
             index += 1
+        }
+        return output.joined(separator: "\n") + "\n"
+    }
+
+    /// Audio-only master: one variant per TYPE=AUDIO rendition, no video.
+    /// Used when progressive audio URLs fail on the device's network path —
+    /// measured on-device: progressive `videoplayback` requests die with
+    /// NSURLErrorDomain -1 while the HLS playlist endpoint keeps serving.
+    /// The TYPE=AUDIO media lines are kept so each variant's AUDIO="group"
+    /// reference still resolves (no dangling groups).
+    static func filterMasterToAudioOnly(_ playlist: String) -> String {
+        let lines = playlist.split(whereSeparator: \.isNewline).map(String.init)
+        var media: [String] = []
+        var variants: [(header: String, uri: String)] = []
+
+        for line in lines {
+            guard line.hasPrefix("#EXT-X-MEDIA:"),
+                  attribute(named: "TYPE", in: line) == "AUDIO",
+                  let uri = attribute(named: "URI", in: line) else { continue }
+            media.append(line)
+            let group = attribute(named: "GROUP-ID", in: line) ?? ""
+            variants.append((
+                "#EXT-X-STREAM-INF:BANDWIDTH=129000,CODECS=\"mp4a.40.2\",AUDIO=\"\(group)\"",
+                uri
+            ))
+        }
+
+        guard !variants.isEmpty else { return playlist }
+
+        var output = ["#EXTM3U", "#EXT-X-INDEPENDENT-SEGMENTS"]
+        output.append(contentsOf: media)
+        for (header, uri) in variants {
+            output.append(header)
+            output.append(uri)
         }
         return output.joined(separator: "\n") + "\n"
     }

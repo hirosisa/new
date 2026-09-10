@@ -391,8 +391,14 @@ final class PlayerEngine: ObservableObject {
     /// here after `disableHLS`, so the next resolve skips HLS and takes the best
     /// stream the remaining clients offer (muxed for the Android clients).
     private func retryOrFail(item: MediaItem, error: Error? = nil) {
-        if item.sourceID == "youtube", let last = lastAttachedURL, looksLikeHLS(last) {
-            YouTubeSource.disableHLS(for: item)
+        if item.sourceID == "youtube", let last = lastAttachedURL {
+            if looksLikeHLS(last) {
+                YouTubeSource.disableHLS(for: item)
+            } else if audioOnly {
+                // Progressive audio failed on this network path; the rest of
+                // the session serves audio over the HLS endpoint instead.
+                YouTubeSource.enableHLSAudioFallback()
+            }
         }
 
         guard !retriedCurrentItem else {
