@@ -31,11 +31,29 @@ enum VolumeBoost {
             var callbacks = MTAudioProcessingTapCallbacks(
                 version: kMTAudioProcessingTapCallbacksVersion_0,
                 clientInfo: box,
-                init: tapInit,
-                finalize: tapFinalize,
+                init: { tap, clientInfo, tapStorageOut in
+                    tapStorageOut.pointee = clientInfo
+                },
+                finalize: { tap in
+                    Unmanaged<Box>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
+                },
                 prepare: nil,
                 unprepare: nil,
-                process: tapProcess
+                process: { tap, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut in
+                    let status = MTAudioProcessingTapGetSourceAudio(
+                        tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut
+                    )
+                    guard status == noErr else { return }
+                    let gain = Unmanaged<Box>
+                        .fromOpaque(MTAudioProcessingTapGetStorage(tap))
+                        .takeUnretainedValue().gain
+                    for buffer in UnsafeMutableAudioBufferListPointer(bufferListInOut) {
+                        guard buffer.mData != nil, buffer.mDataByteSize > 0 else { continue }
+                        let samples = buffer.mData!.assumingMemoryBound(to: Float.self)
+                        let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                        for i in 0..<count { samples[i] *= gain }
+                    }
+                }
             )
             var tapOut: Unmanaged<MTAudioProcessingTap>?
             let status = MTAudioProcessingTapCreate(
@@ -56,42 +74,8 @@ enum VolumeBoost {
         }
     }
 
-    private static func tapInit(
-        _ tap: MTAudioProcessingTap,
-        clientInfo: UnsafeMutableRawPointer?,
-        tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
-    ) -> OSStatus {
-        tapStorageOut?.pointee = clientInfo
-        return noErr
-    }
-
     private static func tapFinalize(_ tap: MTAudioProcessingTap) {
         Unmanaged<Box>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
-    }
-
-    private static func tapProcess(
-        _ tap: MTAudioProcessingTap,
-        numberFrames: CMItemCount,
-        flags: MTAudioProcessingTapFlags,
-        bufferListInOut: UnsafeMutablePointer<AudioBufferList>,
-        numberFramesOut: UnsafeMutablePointer<CMItemCount>,
-        flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
-    ) -> OSStatus {
-        let status = MTAudioProcessingTapCopySourceBuffer(
-            tap, numberFrames, flagsOut, numberFramesOut, bufferListInOut, flags
-        )
-        guard status == noErr else { return status }
-
-        let gain = Unmanaged<Box>
-            .fromOpaque(MTAudioProcessingTapGetStorage(tap))
-            .takeUnretainedValue().gain
-        for buffer in UnsafeMutableAudioBufferListPointer(bufferListInOut) {
-            guard buffer.mData != nil, buffer.mDataByteSize > 0 else { continue }
-            let samples = buffer.mData!.assumingMemoryBound(to: Float.self)
-            let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
-            for i in 0..<count { samples[i] *= gain }
-        }
-        return noErr
     }
 }
 
