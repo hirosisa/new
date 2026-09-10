@@ -230,10 +230,10 @@ final class DownloadManager: ObservableObject {
                 // so progress writes are synchronous — no fire-and-forget Task
                 // that could land after the defer cleanup.
                 func segmentsProgress(_ fraction: Double) {
-                    self?.fractions[item.id] = fraction
+                    self.fractions[item.id] = fraction
                 }
                 func fileProgress(_ fraction: Double) {
-                    self?.fractions[item.id] = fraction
+                    self.fractions[item.id] = fraction
                 }
 
                 let youtube = registry.source(for: item) as? YouTubeSource
