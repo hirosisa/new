@@ -2,11 +2,98 @@ import Foundation
 import AVFoundation
 import Combine
 import MediaPlayer
+import MediaToolbox
 
 /// Defined at file scope because a stored-property initialiser may not reference
 /// `Self` — "covariant 'Self' type cannot be referenced from a stored property
 /// initializer" — even when the enclosing class is `final`.
 private let audioOnlyDefaultsKey = "preferAudioOnly"
+private let volumeBoostDefaultsKey = "volumeBoost"
+
+/// Scales an item's audio above unity through an MTAudioProcessingTap — the
+/// only way `AVPlayer` can exceed 100%. CoreMedia honors taps for local-file
+/// playback (downloads, imported files); streaming HLS ignores them, so the
+/// boost is applied only where it can actually work.
+enum VolumeBoost {
+    private final class Box {
+        let gain: Float
+        init(_ gain: Float) { self.gain = gain }
+    }
+
+    /// No-op below unity: taps have a cost and 100% needs none.
+    static func apply(to item: AVPlayerItem, gain: Float) {
+        guard gain > 1.001 else { return }
+        Task {
+            guard let tracks = try? await item.asset.loadTracks(withMediaType: .audio),
+                  let track = tracks.first else { return }
+
+            let box = Unmanaged.passRetained(Box(gain)).toOpaque()
+            var callbacks = MTAudioProcessingTapCallbacks(
+                version: kMTAudioProcessingTapCallbacksVersion_0,
+                clientInfo: box,
+                init: tapInit,
+                finalize: tapFinalize,
+                prepare: nil,
+                unprepare: nil,
+                process: tapProcess
+            )
+            var tapOut: Unmanaged<MTAudioProcessingTap>?
+            let status = MTAudioProcessingTapCreate(
+                kCFAllocatorDefault,
+                &callbacks,
+                kMTAudioProcessingTapCreationFlag_PostEffects,
+                &tapOut
+            )
+            guard status == noErr, let tap = tapOut else {
+                Unmanaged<Box>.fromOpaque(box).release()
+                return
+            }
+            let params = AVMutableAudioMixInputParameters(track: track)
+            params.audioTapProcessor = tap.takeRetainedValue()
+            let mix = AVMutableAudioMix()
+            mix.inputParameters = [params]
+            item.audioMix = mix
+        }
+    }
+
+    private static func tapInit(
+        _ tap: MTAudioProcessingTap,
+        clientInfo: UnsafeMutableRawPointer?,
+        tapStorageOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> OSStatus {
+        tapStorageOut?.pointee = clientInfo
+        return noErr
+    }
+
+    private static func tapFinalize(_ tap: MTAudioProcessingTap) {
+        Unmanaged<Box>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
+    }
+
+    private static func tapProcess(
+        _ tap: MTAudioProcessingTap,
+        numberFrames: CMItemCount,
+        flags: MTAudioProcessingTapFlags,
+        bufferListInOut: UnsafeMutablePointer<AudioBufferList>,
+        numberFramesOut: UnsafeMutablePointer<CMItemCount>,
+        flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>
+    ) -> OSStatus {
+        let status = MTAudioProcessingTapCopySourceBuffer(
+            tap, numberFrames, flagsOut, numberFramesOut, bufferListInOut, flags
+        )
+        guard status == noErr else { return status }
+
+        let gain = Unmanaged<Box>
+            .fromOpaque(MTAudioProcessingTapGetStorage(tap))
+            .takeUnretainedValue().gain
+        for buffer in UnsafeMutableAudioBufferListPointer(bufferListInOut) {
+            guard buffer.mData != nil, buffer.mDataByteSize > 0 else { continue }
+            let samples = buffer.mData!.assumingMemoryBound(to: Float.self)
+            let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+            for i in 0..<count { samples[i] *= gain }
+        }
+        return noErr
+    }
+}
 
 /// Playback engine: one long-lived `AVPlayer`, a queue, and lock-screen integration.
 ///
@@ -48,6 +135,10 @@ final class PlayerEngine: ObservableObject {
     /// toggle it.
     @Published private(set) var audioOnly = UserDefaults.standard.object(forKey: audioOnlyDefaultsKey) as? Bool ?? true
     @Published private(set) var playbackSpeed: Float = 1.0
+    /// Audio gain above unity (1.0 = 100%). Applied to local-file playback;
+    /// streaming HLS ignores taps, so streams stay at system volume.
+    @Published private(set) var volumeBoost: Float =
+        UserDefaults.standard.object(forKey: volumeBoostDefaultsKey) as? Float ?? 1.0
 
     static let audioOnlyKey = audioOnlyDefaultsKey
 
@@ -281,6 +372,10 @@ final class PlayerEngine: ObservableObject {
         // readyToPlay, which can leave the player stuck at --:-- on device.
         let playerItem = AVPlayerItem(asset: asset)
         playerItem.preferredForwardBufferDuration = 5
+        // >100% gain is honored for local files; streams ignore taps.
+        if url.isFileURL {
+            VolumeBoost.apply(to: playerItem, gain: volumeBoost)
+        }
 
         playerItem.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
@@ -671,6 +766,13 @@ final class PlayerEngine: ObservableObject {
             player.rate = playbackSpeed
         }
         nowPlaying.refreshPlaybackState()
+    }
+
+    /// 1.0 = 100% system volume; up to 3.0. Applies to local-file playback.
+    func setVolumeBoost(_ gain: Float) {
+        let clamped = min(max(1.0, gain), 3.0)
+        volumeBoost = clamped
+        UserDefaults.standard.set(clamped, forKey: volumeBoostDefaultsKey)
     }
 
     /// Switching between video and audio-only re-resolves the stream and

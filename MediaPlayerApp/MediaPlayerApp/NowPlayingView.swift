@@ -69,6 +69,17 @@ struct NowPlayingView: View {
                 FullScreenPlayer(player: engine.player)
                     .ignoresSafeArea()
             }
+            .alert(
+                "Download failed",
+                isPresented: Binding(
+                    get: { downloads.lastError != nil },
+                    set: { if !$0 { downloads.lastError = nil } }
+                )
+            ) {
+                Button("OK") {}
+            } message: {
+                Text(downloads.lastError ?? "")
+            }
         }
     }
 
@@ -320,6 +331,23 @@ struct NowPlayingView: View {
                 }
 
                 Menu {
+                    ForEach([1.0, 1.5, 2.0, 3.0], id: \.self) { gain in
+                        Button {
+                            engine.setVolumeBoost(gain)
+                        } label: {
+                            if engine.volumeBoost == gain {
+                                Label("\(Int(gain * 100))%", systemImage: "checkmark")
+                            } else {
+                                Text("\(Int(gain * 100))%")
+                            }
+                        }
+                    }
+                } label: {
+                    Label("\(Int(engine.volumeBoost * 100))%", systemImage: "speaker.wave.3")
+                        .font(.footnote)
+                }
+
+                Menu {
                     if engine.sleepTimerRemaining != nil {
                         Button("Cancel timer", systemImage: "xmark") {
                             engine.cancelSleepTimer()
@@ -354,7 +382,13 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func downloadButton(for item: MediaItem) -> some View {
         if downloads.isDownloading(item) {
-            ProgressView()
+            if let fraction = downloads.fraction(for: item) {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .frame(width: 44)
+            } else {
+                ProgressView()
+            }
         } else if downloads.isDownloaded(item) {
             Button {
                 downloads.delete(item)

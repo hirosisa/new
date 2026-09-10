@@ -17,15 +17,19 @@ struct LibraryView: View {
     enum Shelf: String, CaseIterable, Identifiable {
         case favorites = "Favorites"
         case recents = "Recent"
+        case downloads = "Downloads"
         case files = "Files"
 
         var id: String { rawValue }
     }
 
+    @ObservedObject private var downloads = DownloadManager.shared
+
     private var items: [MediaItem] {
         switch shelf {
         case .favorites: return library.favorites
         case .recents: return library.recents
+        case .downloads: return downloads.allDownloads()
         case .files: return localItems
         }
     }
@@ -104,6 +108,12 @@ struct LibraryView: View {
         case .files:
             ForEach(items) { item in row(for: item) }
                 .onDelete { offsets in deleteFiles(at: offsets) }
+
+        case .downloads:
+            ForEach(items) { item in row(for: item) }
+                .onDelete { offsets in
+                    for index in offsets { downloads.delete(items[index]) }
+                }
 
         case .recents:
             ForEach(items) { item in row(for: item) }

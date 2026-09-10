@@ -489,6 +489,24 @@ struct YouTubeSource: MediaSource {
         throw lastError ?? SourceError.noStream(item.title)
     }
 
+    /// The raw HLS master URL for `item` from the first client that has one.
+    /// Used by the offline downloader, which fetches playlists and segments
+    /// itself — the progressive endpoint that single-file downloads would use
+    /// fails outright on some networks (measured on-device: NSURLErrorDomain -1).
+    func hlsMasterURL(for item: MediaItem) async -> URL? {
+        for profile in Self.orderedPlayerClients() {
+            do {
+                let response = try await playerResponse(videoID: item.nativeID, profile: profile)
+                if response.unplayableReason == nil, let hls = response.hlsURL {
+                    return hls
+                }
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+
     // MARK: - Stream resolution
 
     func resolveStream(for item: MediaItem, preferAudioOnly: Bool) async throws -> URL {

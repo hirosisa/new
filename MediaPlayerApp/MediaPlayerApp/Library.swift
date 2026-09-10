@@ -109,87 +109,243 @@ final class Library: ObservableObject {
 
 // MARK: - Offline downloads
 
-/// Streams downloaded for offline playback. Files land in
-/// `Documents/Downloads` as `<item.id>.m4a` (audio) or `.mp4` (muxed video,
-/// which carries audio too). Playback resolves the local file before any
-/// network source, so a downloaded item plays offline and never expires.
+/// Streams saved for offline playback, downloaded through the HLS endpoint
+/// (master → media playlist → segments concatenated). The progressive
+/// endpoint that single-file downloads would use fails outright on some
+/// networks (measured on-device: NSURLErrorDomain -1), while HLS keeps
+/// serving. Audio segments are ID3+ADTS AAC → saved as `.aac`; video
+/// segments are muxed MPEG-TS → saved as `.ts`. AVPlayer plays both.
 @MainActor
 final class DownloadManager: ObservableObject {
 
     static let shared = DownloadManager()
 
     @Published private(set) var activeIDs: Set<String> = []
+    @Published private(set) var fractions: [String: Double] = [:]
+    /// Surfaced by the UI so a failed download is never silent.
+    @Published var lastError: String?
 
     private let directory: URL
+    private let manifestURL: URL
+    private var manifest: [String: StoredDownload] = [:]
+
+    /// What the Library shelf needs to list a download as a row.
+    private struct StoredDownload: Codable {
+        let sourceID: String
+        let nativeID: String
+        let title: String
+        let author: String
+        let artworkURL: URL?
+        let duration: TimeInterval
+        let kind: MediaItem.Kind
+        let ext: String
+    }
 
     private init() {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         directory = documents.appendingPathComponent("Downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    func isDownloaded(_ item: MediaItem) -> Bool {
-        FileManager.default.fileExists(atPath: audioFileURL(for: item).path)
-            || FileManager.default.fileExists(atPath: videoFileURL(for: item).path)
+        manifestURL = directory.appendingPathComponent("manifest.json")
+        loadManifest()
     }
 
     func isDownloading(_ item: MediaItem) -> Bool { activeIDs.contains(item.id) }
+    func fraction(for item: MediaItem) -> Double? { fractions[item.id] }
 
-    func audioFileURL(for item: MediaItem) -> URL {
-        directory.appendingPathComponent("\(item.id).m4a")
-    }
-
-    func videoFileURL(for item: MediaItem) -> URL {
-        directory.appendingPathComponent("\(item.id).mp4")
-    }
-
-    /// Local file for playback, preferred by current mode, falling back to the
-    /// other format if that's what was downloaded.
+    /// The downloaded file for an item, or nil. The extension is sniffed at
+    /// save time (.aac / .ts), so the lookup scans for the id prefix.
     func localFile(for item: MediaItem, audioOnly: Bool) -> URL? {
-        let preferred = audioOnly ? audioFileURL(for: item) : videoFileURL(for: item)
-        if FileManager.default.fileExists(atPath: preferred.path) { return preferred }
-        let fallback = audioOnly ? videoFileURL(for: item) : audioFileURL(for: item)
-        return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        guard let name = files.first(where: { $0.hasPrefix("\(item.id).") }) else { return nil }
+        return directory.appendingPathComponent(name)
+    }
+
+    /// All downloads as listable rows for the Library shelf.
+    func allDownloads() -> [MediaItem] {
+        manifest.values.map { stored in
+            MediaItem(
+                sourceID: stored.sourceID,
+                nativeID: stored.nativeID,
+                title: stored.title,
+                author: stored.author,
+                artworkURL: stored.artworkURL,
+                duration: stored.duration,
+                kind: stored.kind
+            )
+        }
+        .sorted { $0.title < $1.title }
     }
 
     func delete(_ item: MediaItem) {
-        for url in [audioFileURL(for: item), videoFileURL(for: item)] {
-            try? FileManager.default.removeItem(at: url)
+        if let file = localFile(for: item, audioOnly: true) {
+            try? FileManager.default.removeItem(at: file)
         }
+        manifest.removeValue(forKey: item.id)
+        saveManifest()
     }
 
-    /// Resolves a single-file progressive stream and downloads it. Audio takes
-    /// the best m4a; video takes the muxed mp4 — the HLS rewrites are local
-    /// playlist files, not downloadable single streams.
+    func isDownloaded(_ item: MediaItem) -> Bool {
+        manifest[item.id] != nil
+            && FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("\(item.id).\(manifest[item.id]!.ext)").path)
+    }
+
+    /// Resolves the HLS master, picks a playlist (best audio rendition, or the
+    /// highest H.264 variant — the master lists variants lowest-first), then
+    /// downloads every segment and concatenates them into one file.
     func download(_ item: MediaItem, registry: SourceRegistry, audioOnly: Bool) {
-        guard !isDownloaded(item), !activeIDs.contains(item.id) else { return }
+        guard manifest[item.id] == nil, !activeIDs.contains(item.id) else { return }
         activeIDs.insert(item.id)
+        fractions[item.id] = 0
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { activeIDs.remove(item.id) }
+            defer {
+                activeIDs.remove(item.id)
+                fractions[item.id] = nil
+            }
             do {
-                let source = registry.source(for: item)
-                guard let youtube = source as? YouTubeSource else { return }
-                let remote = try await youtube.downloadableStream(
-                    for: item,
-                    preferAudioOnly: audioOnly
-                )
-                let destination = audioOnly ? audioFileURL(for: item) : videoFileURL(for: item)
-                let (temp, response) = try await URLSession.shared.download(from: remote)
-                guard let http = response as? HTTPURLResponse,
-                      (200...299).contains(http.statusCode) else {
-                    throw SourceError.http(
-                        status: (response as? HTTPURLResponse)?.statusCode ?? -1,
-                        host: remote.host ?? "googlevideo"
-                    )
+                guard let youtube = registry.source(for: item) as? YouTubeSource else {
+                    throw SourceError.notConfigured("Downloads are YouTube-only.")
                 }
-                try? FileManager.default.removeItem(at: destination)
-                try FileManager.default.moveItem(at: temp, to: destination)
+                guard let master = await youtube.hlsMasterURL(for: item) else {
+                    throw SourceError.noStream("No HLS manifest for “\(item.title)”.")
+                }
+                let (data, ext) = try await Self.fetchSegments(
+                    master: master,
+                    audioOnly: audioOnly
+                ) { [weak self] fraction in
+                    Task { @MainActor [weak self] in self?.fractions[item.id] = fraction }
+                }
+
+                let file = directory.appendingPathComponent("\(item.id).\(ext)")
+                try data.write(to: file, options: .atomic)
+                manifest[item.id] = StoredDownload(
+                    sourceID: item.sourceID,
+                    nativeID: item.nativeID,
+                    title: item.title,
+                    author: item.author,
+                    artworkURL: item.artworkURL,
+                    duration: item.duration,
+                    kind: item.kind,
+                    ext: ext
+                )
+                saveManifest()
             } catch {
-                // The button returns to its download state; nothing partial
-                // is left behind, so the user can simply retry.
+                lastError = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
             }
         }
+    }
+
+    /// Fetches the master, picks a playlist, and concatenates every segment.
+    /// Measured live: audio segments are ID3+ADTS AAC; video variant segments
+    /// are muxed MPEG-TS (188-byte packets) — both concatenate into a file
+    /// AVPlayer plays directly.
+    private static func fetchSegments(
+        master: URL,
+        audioOnly: Bool,
+        onProgress: @escaping (Double) -> Void
+    ) async throws -> (Data, String) {
+        let coreMedia = "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)"
+
+        func attribute(_ line: String, _ name: String) -> String? {
+            guard let range = line.range(of: "\(name)=\"") else { return nil }
+            let tail = line[range.upperBound...]
+            return tail.firstIndex(of: "\"").map { String(tail[..<$0]) }
+        }
+
+        func fetchText(_ url: URL) async throws -> String {
+            var request = URLRequest(url: url)
+            request.setValue(coreMedia, forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: request)
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+
+        func pickPlaylist(from masterText: String) -> String? {
+            let lines = masterText.split(separator: "\n").map(String.init)
+            if audioOnly {
+                if let line = lines.first(where: {
+                    $0.hasPrefix("#EXT-X-MEDIA:") && attribute($0, "TYPE") == "AUDIO"
+                }) {
+                    return attribute(line, "URI")
+                }
+                return nil
+            }
+            // Video: the highest-resolution H.264 variant. The master lists
+            // variants lowest-resolution first, so scan for the max height.
+            var best: (height: Int, uri: String)?
+            var index = 0
+            while index < lines.count - 1 {
+                if lines[index].hasPrefix("#EXT-X-STREAM-INF:") {
+                    let uri = lines[index + 1]
+                    if uri.hasPrefix("http"),
+                       attribute(lines[index], "CODECS")?.contains("avc1") == true {
+                        let height = attribute(lines[index], "RESOLUTION")?
+                            .split(separator: "x").last.flatMap { Int($0) } ?? 0
+                        if height > (best?.height ?? 0) { best = (height, uri) }
+                    }
+                    index += 2
+                    continue
+                }
+                index += 1
+            }
+            return best?.uri
+        }
+
+        let masterText = try await fetchText(master)
+        guard let playlistText = pickPlaylist(from: masterText),
+              let playlistURL = URL(string: playlistText) else {
+            throw SourceError.noStream("No downloadable playlist in the HLS master.")
+        }
+        let mediaPlaylist = try await fetchText(playlistURL)
+        let segments = mediaPlaylist.split(separator: "\n")
+            .map(String.init)
+            .filter { $0.hasPrefix("http") }
+        guard !segments.isEmpty else {
+            throw SourceError.noStream("No segments in the media playlist.")
+        }
+
+        var data = Data()
+        for (offset, segmentText) in segments.enumerated() {
+            guard let url = URL(string: segmentText) else { continue }
+            var request = URLRequest(url: url)
+            request.setValue(coreMedia, forHTTPHeaderField: "User-Agent")
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                throw SourceError.http(
+                    status: (response as? HTTPURLResponse)?.statusCode ?? -1,
+                    host: url.host ?? "googlevideo"
+                )
+            }
+            for try await byte in bytes { data.append(byte) }
+            onProgress(Double(offset + 1) / Double(segments.count))
+        }
+        return (data, sniffExtension(of: data))
+    }
+
+    /// Container sniffing: MPEG-TS → .ts, ID3/ADTS AAC → .aac, fMP4 → .mp4.
+    private static func sniffExtension(of data: Data) -> String {
+        let head = [UInt8](data.prefix(4))
+        if head.first == 0x47 { return "ts" }
+        if head.starts(with: [0x49, 0x44, 0x33]) { return "aac" }
+        if head.starts(with: [0xFF, 0xF1]) || head.starts(with: [0xFF, 0xF9]) { return "aac" }
+        if head.elementsEqual(Array("ftyp".utf8)) { return "mp4" }
+        return "ts"
+    }
+
+    // MARK: Manifest persistence
+
+    private func loadManifest() {
+        guard let data = try? Data(contentsOf: manifestURL),
+              let stored = try? JSONDecoder().decode([String: StoredDownload].self, from: data)
+        else { return }
+        manifest = stored
+    }
+
+    private func saveManifest() {
+        guard let data = try? JSONEncoder().encode(manifest) else { return }
+        try? data.write(to: manifestURL, options: [.atomic])
     }
 }
