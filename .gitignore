@@ -13,6 +13,9 @@ project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 # macOS
 .DS_Store
 
+# Python bytecode from scripts/probe-youtube.py and scripts/verify-avc-filter.py
+__pycache__/
+
 # Swift Package Manager
 .swiftpm/
 .build/

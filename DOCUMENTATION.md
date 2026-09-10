@@ -82,7 +82,8 @@ The `IOS` client is what makes this viable without a server:
   needed — this is the fragile, heavyweight part of every other extractor
 - no PO Token / BotGuard attestation, unlike `WEB`, which is refused outright
 - no API key
-- `hlsManifestUrl` gives 8 renditions up to 3840×2160, played natively by AVPlayer
+- `hlsManifestUrl` gives 17 renditions up to 3840×2160 (7 H.264 after the
+  avc-only rewrite below)
 - URLs are User-Agent agnostic, which matters because AVPlayer sends
   `AppleCoreMedia`, not the app's UA
 
@@ -94,10 +95,9 @@ to the *device's* IP. That is precisely the thing that makes proxy-based designs
 
 ```
 audio-only  -> best-bitrate audio/mp4 from adaptiveFormats
-video       -> hlsManifestUrl  (unless "prefer progressive" is set)
+video       -> avcOnlyMaster(hlsManifestUrl)  (unless "prefer progressive" is set)
             -> muxed progressive from formats
             -> retry via ANDROID_VR, which reliably returns a muxed format
-            -> HLS
             -> audio as a last resort
 ```
 
@@ -105,6 +105,17 @@ video       -> hlsManifestUrl  (unless "prefer progressive" is set)
 recombine from two remote sources, so only *muxed* progressive formats are usable
 standalone — and the `IOS` client returns none, which is why `ANDROID_VR` exists
 as a fallback. WebM/Opus/Vorbis are filtered out; AVPlayer can't decode them.
+
+The raw `hlsManifestUrl` is not handed to AVPlayer directly. The IOS client's
+HLS master lists VP9 renditions first (measured: 10 VP9 vs 7 H.264), and AVPlayer
+on device picks VP9 and stalls forever — the item never reaches `.failed`, so
+normal retry logic never fires. `YouTubeSource.avcOnlyMaster` instead fetches the
+master with an `AppleCoreMedia` user agent, rewrites it to keep only `avc1`
+variants plus the `TYPE=AUDIO` groups they reference (dropping `vp09`, `av01`,
+and `TYPE=SUBTITLES` lines), writes the result to `yt-hls-<uuid>.m3u8` in Caches,
+and hands that local file to AVPlayer. If a rewritten stream still never starts,
+`PlayerEngine.watchForStall` fires after 8 seconds of no playback, adds the video
+ID to a session skip set, and re-resolves through the muxed fallbacks above.
 
 ### Response parsing
 

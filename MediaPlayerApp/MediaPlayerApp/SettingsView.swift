@@ -129,7 +129,7 @@ struct SettingsView: View {
             ad presence separately and tells you which stage broke.
 
             The fix is usually just bumping the version strings in \
-            YouTubeSource.swift (enum Client).
+            YouTubeSource.swift (the ClientProfile structs).
             """)
         }
         .alert("Public instances are blocked", isPresented: $showInvidiousHelp) {

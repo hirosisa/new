@@ -75,6 +75,10 @@ final class PlayerEngine: ObservableObject {
 
     private var loadTask: Task<Void, Never>?
     private var sleepTask: Task<Void, Never>?
+    /// Cancels the HLS “never started” fallback when playback actually begins.
+    private var stallTask: Task<Void, Never>?
+    /// Last URL handed to AVPlayer, so a stall/failure can skip HLS next time.
+    private var lastAttachedURL: URL?
 
     /// Playback order when shuffled: indices into `queue`.
     private var shuffleOrder: [Int] = []
@@ -129,7 +133,10 @@ final class PlayerEngine: ObservableObject {
             .sink { [weak self] status in
                 guard let self else { return }
                 self.isPlaying = (status == .playing)
-                if status == .playing { self.errorMessage = nil }
+                if status == .playing {
+                    self.errorMessage = nil
+                    self.stallTask?.cancel()
+                }
                 self.nowPlaying.refreshPlaybackState()
             }
             .store(in: &playerCancellables)
@@ -212,6 +219,7 @@ final class PlayerEngine: ObservableObject {
 
     private func load(_ item: MediaItem, autoPlay: Bool, resumeAt: TimeInterval? = nil) {
         loadTask?.cancel()
+        stallTask?.cancel()
 
         currentItem = item
         errorMessage = nil
@@ -263,24 +271,35 @@ final class PlayerEngine: ObservableObject {
         playerItem.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
+                // A retry leaves the old item's observers attached for a while;
+                // its late events must not clobber the retry's state.
+                guard self?.player.currentItem === playerItem else { return }
                 self?.handle(status: status, for: playerItem, item: item, autoPlay: autoPlay, resumeAt: resumeAt)
             }
             .store(in: &itemCancellables)
 
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.handlePlaybackEnded() }
+            .sink { [weak self] _ in
+                guard self?.player.currentItem === playerItem else { return }
+                self?.handlePlaybackEnded()
+            }
             .store(in: &itemCancellables)
 
         NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.retryOrFail(item: item) }
+            .sink { [weak self] _ in
+                guard self?.player.currentItem === playerItem else { return }
+                self?.retryOrFail(item: item)
+            }
             .store(in: &itemCancellables)
 
         player.replaceCurrentItem(with: playerItem)
         // `defaultRate` (iOS 16+) makes `play()` resume at the chosen speed
         // instead of snapping back to 1×.
         player.defaultRate = playbackSpeed
+        lastAttachedURL = url
+        watchForStall(item: item, url: url, autoPlay: autoPlay)
 
         nowPlaying.update(item: item, duration: duration, engine: self)
     }
@@ -331,9 +350,42 @@ final class PlayerEngine: ObservableObject {
         }
     }
 
+    /// HLS masters can report readyToPlay then never start (VP9-first manifests).
+    /// After 8s with no actual playback, skip HLS and re-resolve as muxed MP4.
+    /// Only armed when playback was requested — an item loaded paused
+    /// (`autoPlay: false`) is waiting for the user, not stalled. `pause()`
+    /// cancels the watch too, so a user pause during buffering or an
+    /// audio-session interruption can never trigger the fallback.
+    private func watchForStall(item: MediaItem, url: URL, autoPlay: Bool) {
+        stallTask?.cancel()
+        guard autoPlay, looksLikeHLS(url) else { return }
+
+        stallTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            // A pause after playback has actually started is not a stall.
+            guard self.currentItem?.id == item.id, !self.isPlaying, self.currentTime < 1 else { return }
+            YouTubeSource.disableHLS(for: item)
+            self.retryOrFail(item: item)
+        }
+    }
+
+    private func looksLikeHLS(_ url: URL) -> Bool {
+        let value = url.absoluteString.lowercased()
+        return url.pathExtension.lowercased() == "m3u8"
+            || value.contains(".m3u8")
+            || value.contains("manifest/hls")
+    }
+
     /// Podcast and Archive URLs are stable, but Invidious stream URLs expire.
-    /// One silent re-resolve covers that without looping.
+    /// One silent re-resolve covers that without looping. HLS stalls also land
+    /// here after `disableHLS`, so the next resolve skips HLS and takes the best
+    /// stream the remaining clients offer (muxed for the Android clients).
     private func retryOrFail(item: MediaItem, error: Error? = nil) {
+        if item.sourceID == "youtube", let last = lastAttachedURL, looksLikeHLS(last) {
+            YouTubeSource.disableHLS(for: item)
+        }
+
         guard !retriedCurrentItem else {
             isLoading = false
             errorMessage = error?.localizedDescription ?? "Couldn't play “\(item.title)”."
@@ -341,6 +393,7 @@ final class PlayerEngine: ObservableObject {
         }
         retriedCurrentItem = true
         isLoading = true
+        stallTask?.cancel()
 
         loadTask?.cancel()
         loadTask = Task { [weak self] in
@@ -369,6 +422,10 @@ final class PlayerEngine: ObservableObject {
     }
 
     func pause() {
+        // A deliberate pause — including during initial buffering, from a
+        // lock-screen control, or from an audio-session interruption — must
+        // never be read as an HLS stall, so disarm the watchdog here as well.
+        stallTask?.cancel()
         player.pause()
     }
 
@@ -558,9 +615,11 @@ final class PlayerEngine: ObservableObject {
 
     func stop() {
         loadTask?.cancel()
+        stallTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
         itemCancellables.removeAll()
+        lastAttachedURL = nil
 
         currentItem = nil
         queue = []
