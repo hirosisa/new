@@ -840,6 +840,11 @@ struct YouTubeSource: MediaSource {
 
     private func playerResponse(videoID: String,
                                 profile: ClientProfile) async throws -> PlayerResponse {
+        // Playback resolves, then the downloader (or a retry) needs the same
+        // response again. Re-requesting in a burst is what got this network's
+        // IP served stripped responses, so cache for a few minutes.
+        if let cached = Self.cachedPlayerResponse(videoID) { return cached }
+
         guard let url = URL(string: "\(Self.endpoint)/player") else {
             throw SourceError.transport("Bad YouTube endpoint.")
         }
@@ -858,10 +863,33 @@ struct YouTubeSource: MediaSource {
         )
 
         do {
-            return try JSONDecoder().decode(PlayerResponse.self, from: data)
+            let response = try JSONDecoder().decode(PlayerResponse.self, from: data)
+            Self.cachePlayerResponse(response, videoID: videoID)
+            return response
         } catch {
             throw SourceError.decoding(String(describing: error))
         }
+    }
+
+    // MARK: Player-response cache
+
+    private static let responseCacheLock = NSLock()
+    private static var responseCache: [String: (response: PlayerResponse, at: Date)] = [:]
+    private static let responseCacheTTL: TimeInterval = 300
+
+    private static func cachedPlayerResponse(_ videoID: String) -> PlayerResponse? {
+        responseCacheLock.lock()
+        defer { responseCacheLock.unlock() }
+        guard let entry = responseCache[videoID],
+              Date().timeIntervalSince(entry.at) < responseCacheTTL
+        else { return nil }
+        return entry.response
+    }
+
+    private static func cachePlayerResponse(_ response: PlayerResponse, videoID: String) {
+        responseCacheLock.lock()
+        defer { responseCacheLock.unlock() }
+        responseCache[videoID] = (response, Date())
     }
 
     // MARK: - Loose-JSON helpers

@@ -380,45 +380,59 @@ final class DownloadManager: ObservableObject {
     }
 
     /// Last tier: download a single progressive file (muxed itag 18 or
-    /// progressive audio). Sniffs the container for the extension — both
-    /// fMP4 flavors land as `.m4a`/`.mp4` per mode, everything else as `.ts`.
+    /// progressive audio). Sends the `Range` header AVPlayer itself sends —
+    /// the phone's network gates full GETs of videoplayback URLs (measured:
+    /// URLError.timedOut without it) — and retries once on failure.
     private static func fetchWholeFile(
         _ remote: URL,
         audioOnly: Bool,
         onProgress: @escaping (Double) -> Void
     ) async throws -> (Data, String) {
-        var request = URLRequest(url: remote)
-        request.setValue(
-            "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)",
-            forHTTPHeaderField: "User-Agent"
-        )
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else {
-            throw SourceError.http(
-                status: (response as? HTTPURLResponse)?.statusCode ?? -1,
-                host: remote.host ?? "googlevideo"
+        func attempt() async throws -> (Data, String) {
+            var request = URLRequest(url: remote)
+            request.timeoutInterval = 30
+            request.setValue(
+                "AppleCoreMedia/1.0.0.22D82 (iPhone; U; CPU OS 18_3_2 like Mac OS X; en_us)",
+                forHTTPHeaderField: "User-Agent"
             )
-        }
-        let expected = max(http.expectedContentLength, 0)
-
-        var data = Data()
-        for try await byte in bytes {
-            data.append(byte)
-            if expected > 0 {
-                onProgress(min(0.99, Double(data.count) / Double(expected)))
+            request.setValue("bytes=0-", forHTTPHeaderField: "Range")
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                throw SourceError.http(
+                    status: (response as? HTTPURLResponse)?.statusCode ?? -1,
+                    host: remote.host ?? "googlevideo"
+                )
             }
+            let expected = max(http.expectedContentLength, 0)
+
+            var data = Data()
+            for try await byte in bytes {
+                data.append(byte)
+                if expected > 0 {
+                    onProgress(min(0.99, Double(data.count) / Double(expected)))
+                }
+            }
+            let head = [UInt8](data.prefix(4))
+            let ext: String
+            if head.elementsEqual(Array("ftyp".utf8)) {
+                ext = audioOnly ? "m4a" : "mp4"
+            } else if head.first == 0x47 {
+                ext = "ts"
+            } else {
+                ext = "m4a"
+            }
+            return (data, ext)
         }
-        let head = [UInt8](data.prefix(4))
-        let ext: String
-        if head.elementsEqual(Array("ftyp".utf8)) {
-            ext = audioOnly ? "m4a" : "mp4"
-        } else if head.first == 0x47 {
-            ext = "ts"
-        } else {
-            ext = "m4a"
+
+        do {
+            return try await attempt()
+        } catch {
+            // One retry: the phone's network gates these requests
+            // inconsistently, and a fresh connection often gets through.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            return try await attempt()
         }
-        return (data, ext)
     }
 
     /// Container sniffing: MPEG-TS → .ts, ID3/ADTS AAC → .aac, fMP4 → .mp4.
