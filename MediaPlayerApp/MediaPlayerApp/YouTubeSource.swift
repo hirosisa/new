@@ -515,7 +515,7 @@ struct YouTubeSource: MediaSource {
     }
 
     private static func avcOnlyMaster(from remote: URL) async -> URL? {
-        cachedMaster(from: remote, rewrite: filterMasterToAVC)
+        await cachedMaster(from: remote, rewrite: filterMasterToAVC)
     }
 
     /// Audio-only master: one variant per TYPE=AUDIO rendition, no video.
@@ -523,7 +523,7 @@ struct YouTubeSource: MediaSource {
     /// (measured on-device: progressive `videoplayback` requests die with
     /// NSURLErrorDomain -1 while the HLS playlist endpoint keeps serving).
     private static func audioOnlyMaster(from remote: URL) async -> URL? {
-        cachedMaster(from: remote, rewrite: filterMasterToAudioOnly)
+        await cachedMaster(from: remote, rewrite: filterMasterToAudioOnly)
     }
 
     /// Keep H.264 video + the AAC audio groups those variants reference.
